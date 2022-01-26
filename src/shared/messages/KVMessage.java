@@ -3,19 +3,41 @@ package shared.messages;
 public interface KVMessage {
 	
 	public enum StatusType {
-		GET, 			/* Get - request */
-		GET_ERROR, 		/* requested tuple (i.e. value) not found */
-		GET_SUCCESS, 	/* requested tuple (i.e. value) found */
-		PUT, 			/* Put - request */
-		PUT_SUCCESS, 	/* Put - request successful, tuple inserted */
-		PUT_UPDATE, 	/* Put - request successful, i.e. value updated */
-		PUT_ERROR, 		/* Put - request not successful */
-		DELETE_SUCCESS, /* Delete - request successful */
-		DELETE_ERROR 	/* Delete - request successful */
+		GET				((byte)0), 	/* Get - request */
+		GET_ERROR		((byte)1), 	/* requested tuple (i.e. value) not found */
+		GET_SUCCESS		((byte)2), 	/* requested tuple (i.e. value) found */
+		PUT				((byte)3), 	/* Put - request */
+		PUT_SUCCESS		((byte)4), 	/* Put - request successful, tuple inserted */
+		PUT_UPDATE		((byte)5), 	/* Put - request successful, i.e. value updated */
+		PUT_ERROR		((byte)6), 	/* Put - request not successful */
+		DELETE_SUCCESS	((byte)7),	/* Delete - request successful */
+		DELETE_ERROR	((byte)8);	/* Delete - request successful */
+
+		private final byte val;
+
+		private static final StatusType[] hash = StatusType.values();
+
+		static {
+			for (StatusType p : hash) {
+				// System.out.println("StatusType=" + p.val);
+			}
+		}
+
+		StatusType(byte val) {
+			this.val = val;
+		}
+
+		public byte getVal() {
+			return this.val;
+		}
+
+		public static StatusType parse(byte val) {
+			return hash[val];
+		}
 	}
 
 	/**
-	 * @return the key that is associated with this message, 
+	 * @return the key that is associated with this message,
 	 * 		null if not key is associated.
 	 */
 	public String getKey();
