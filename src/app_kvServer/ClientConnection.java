@@ -101,30 +101,32 @@ public class ClientConnection implements Runnable {
 	}
 
 	private TextMessage putKV(String key, String value) {
-		StatusType putStatus = (value != null && server.inStorage(key)) ? StatusType.PUT_UPDATE : StatusType.PUT_SUCCESS;
-
+		TextMessage res;
+		
 		try {
+			StatusType putStatus = server.inStorage(key) ? StatusType.PUT_UPDATE : StatusType.PUT_SUCCESS;
 			server.putKV(key, value);
+
+			res = new TextMessage(key, value, putStatus);
 		} catch (Exception e) {
 			//TODO: handle exception
+			res = new TextMessage(key, value, StatusType.PUT_ERROR);
 		}
-		
-		TextMessage res = new TextMessage(key, value, StatusType.PUT_SUCCESS);
 		
 		return res;
 	}
 
 	private TextMessage getKV(String key) {
 		String value;
+		TextMessage res;
 
 		try {
 			value = server.getKV(key);
+			res = new TextMessage(key, value, StatusType.GET_SUCCESS);
 		} catch (Exception e) {
 			//TODO: handle exception
-			value = "error";
+			res = new TextMessage(key, e.getMessage(), StatusType.GET_ERROR);
 		}
-		
-		TextMessage res = new TextMessage(key, value, StatusType.GET_SUCCESS);
 		
 		return res;
 	}

@@ -3,7 +3,13 @@ package app_kvServer;
 import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
+
 import java.io.IOException;
+import java.io.File;
+import java.io.FileWriter;
+
+import java.util.Scanner;
+import java.util.HashMap;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -13,12 +19,15 @@ import logger.LogSetup;
 public class KVServer implements IKVServer {
 
 	private static Logger logger = Logger.getRootLogger();
-
+	private static final String STORAGE_DIRECTORY = "storage/";
 	private int port;
 	private int cacheSize;
 	private CacheStrategy strategy;
 	private ServerSocket serverSocket;
 	private boolean running;
+	File storageDirectory = new File(STORAGE_DIRECTORY);
+
+	HashMap<String, Boolean> fileList = new HashMap<String, Boolean>();
 
 	/**
 	 * Start KV Server at given port
@@ -71,39 +80,60 @@ public class KVServer implements IKVServer {
 
 	@Override
     public boolean inStorage(String key){
-		// TODO Auto-generated method stub
-		return false;
+		// TODO: See if someone is writing to fileList first
+		return fileList.containsKey(key);
 	}
 
 	@Override
     public void clearStorage(){
-		// TODO Auto-generated method stub
+		fileList.clear();
+		File[] allContents = storageDirectory.listFiles();
+		if (allContents != null) {
+			for (File file : allContents) {
+				file.delete();
+			}
+		}
 	}
 
 	@Override
     public String getKV(String key) throws Exception {
-		try {
-			// Check if key exists
-			if (false) {
-				throw new Exception("Key DNE");
-			} else {
-				return "mykey";
+		// Check if key exists
+		if (!inStorage(key)) {
+			throw new Exception("Key does not exist");
+		} else {
+			File file = new File(STORAGE_DIRECTORY + key);
+			StringBuilder fileContents = new StringBuilder((int)file.length());        
+			String value;
+
+			try (Scanner scanner = new Scanner(file)) {
+				while (scanner.hasNextLine()) {
+					fileContents.append(scanner.nextLine() + System.lineSeparator());
+				}
+				return fileContents.toString().trim();
 			}
-		} catch (Exception e) {
-			//TODO: handle exception
-			return null;
 		}
 	}
 
 	@Override
     public void putKV(String key, String value) throws Exception {
 		try {
-			if (value == null) {
+			if (value.equals("null")) {
 				// Delete the key
-				System.out.println("Want to delete");
+				// TODO: Get a lock on the fileList since I'm updating/writing to it
+				fileList.remove(key);
+				File file = new File(STORAGE_DIRECTORY + key);
+				file.delete();
 				// TODO: Do you have to return an error if the key DNE?
 			} else {
 				// Insert/replace the key
+				fileList.put(key, true);
+				try {
+					FileWriter myWriter = new FileWriter("storage/" + key);
+					myWriter.write(value);
+					myWriter.close();
+				  } catch (IOException e) {
+					e.printStackTrace();
+				  }
 			}
 		} catch (Exception e) {
 			//TODO: handle exception
@@ -181,6 +211,7 @@ public class KVServer implements IKVServer {
 
 	private boolean initializeServer() {
     	logger.info("Initialize server ...");
+		initializeStorage();
     	try {
             serverSocket = new ServerSocket(port);
             logger.info("Server listening on port: " 
@@ -195,6 +226,23 @@ public class KVServer implements IKVServer {
             return false;
         }
     }
+
+	private void initializeStorage() {
+		logger.info("Initialize storage ...");
+		// Ensure storage directory exists
+		if (!storageDirectory.exists()){
+			storageDirectory.mkdir();
+		} else {
+			// Load all the data
+			File[] listOfFiles = storageDirectory.listFiles();
+
+			for (int i = 0; i < listOfFiles.length; i++) {
+				if (listOfFiles[i].isFile()) {
+					fileList.put(listOfFiles[i].getName(), true);
+				} 
+			}
+		}
+	}
 
 	private boolean isRunning() {
         return this.running;

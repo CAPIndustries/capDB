@@ -26,5 +26,8 @@ hs_err_pid*
 bin/
 *.MF
 
+# storage files
+storage/
+
 # misc
 commands

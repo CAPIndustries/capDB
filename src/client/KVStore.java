@@ -71,8 +71,6 @@ public class KVStore implements KVCommInterface {
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 		
-
-		System.out.println("Getting response");
 		TextMessage res = receiveMessage();
 		System.out.println("Status:" + res.getStatus());
 		System.out.println("Key:" + res.getKey());

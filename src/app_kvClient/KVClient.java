@@ -83,12 +83,12 @@ public class KVClient implements IKVClient {
 			if(tokens.length == 3) {
 				connectCommand(tokens[1], tokens[2]);
 			} else {
-				printError("Expected 2 arguments: <address> <port>");
+				printError("Expected 2 arguments: connect <address> <port>");
 			}
 		} else if (tokens[0].equals("disconnect")  && tokens.length == 1) {
 			disconnect();
 		} else if (tokens[0].equals("put")) {
-			if(tokens.length >= 2) {
+			if(tokens.length >= 3) {
 				if(store != null && store.isRunning()){
 					StringBuilder msg = new StringBuilder();
 					for(int i = 2; i < tokens.length; i++) {
@@ -103,7 +103,7 @@ public class KVClient implements IKVClient {
 					printError("Not connected!");
 				}
 			} else {
-				printError("Expected 2 arguments: <key> <value>");
+				printError("Expected 2 arguments: put <key> <value>");
 			}
 		} else if (tokens[0].equals("get")) {
 			if(tokens.length == 2) {
@@ -113,7 +113,7 @@ public class KVClient implements IKVClient {
 					printError("Not connected!");
 				}
 			} else {
-				printError("Expected 1 argument: <key>");
+				printError("Expected 1 argument: get <key>");
 			}
 		} else if (tokens[0].equals("logLevel")) {
 			if (tokens.length == 2) {
@@ -126,7 +126,7 @@ public class KVClient implements IKVClient {
 							"Log level changed to level " + level);
 				}
 			} else {
-				printError("Expected 1 argument: <level>");
+				printError("Expected 1 argument: logLevel <level>");
 			}
 		} else if (tokens[0].equals("help")) {
 			if (tokens.length == 1) {
@@ -171,7 +171,8 @@ public class KVClient implements IKVClient {
 					System.out.println("SUCCESS: " + key + " inserted");
 					break;
 				case PUT_UPDATE:
-					System.out.println("SUCCESS: " + key + " updated");
+					String msg = value.equals("null") ? " deleted" : " updated";
+					System.out.println("SUCCESS: " + key + msg);
 					break;
 				case PUT_ERROR:
 					System.out.println("ERROR: PUT operation with key " + key + " failed: " + res.getValue());
@@ -202,6 +203,8 @@ public class KVClient implements IKVClient {
 					break;
 			}
 		} catch (Exception e) {
+			e.printStackTrace();
+			System.out.println(e);
 			printError("GET Error!");
 		}
 	}
