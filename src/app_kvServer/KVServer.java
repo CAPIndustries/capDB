@@ -10,11 +10,13 @@ import java.io.FileWriter;
 
 import java.util.Scanner;
 import java.util.HashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import logger.LogSetup;
+
 
 public class KVServer implements IKVServer {
 
@@ -27,7 +29,8 @@ public class KVServer implements IKVServer {
 	private boolean running;
 	File storageDirectory = new File(STORAGE_DIRECTORY);
 
-	HashMap<String, Boolean> fileList = new HashMap<String, Boolean>();
+	// true = write in progress (locked) and false = data is accessible
+	HashMap<String, Boolean> fileList = new ConcurrentMap<String, Boolean>();
 
 	/**
 	 * Start KV Server at given port
@@ -101,16 +104,18 @@ public class KVServer implements IKVServer {
 		if (!inStorage(key)) {
 			throw new Exception("Key does not exist");
 		} else {
+			fileList.put(key, true);	
 			File file = new File(STORAGE_DIRECTORY + key);
 			StringBuilder fileContents = new StringBuilder((int)file.length());        
 			String value;
-
+			
 			try (Scanner scanner = new Scanner(file)) {
 				while (scanner.hasNextLine()) {
 					fileContents.append(scanner.nextLine() + System.lineSeparator());
 				}
 				return fileContents.toString().trim();
 			}
+			fileList.put(key, false);
 		}
 	}
 
@@ -120,12 +125,14 @@ public class KVServer implements IKVServer {
 			if (value.equals("null")) {
 				// Delete the key
 				// TODO: Get a lock on the fileList since I'm updating/writing to it
+				do {} while(fileList.get(key));
 				fileList.remove(key);
 				File file = new File(STORAGE_DIRECTORY + key);
 				file.delete();
 				// TODO: Do you have to return an error if the key DNE?
 			} else {
 				// Insert/replace the key
+				do {} while(fileList.get(key));
 				fileList.put(key, true);
 				try {
 					FileWriter myWriter = new FileWriter("storage/" + key);
@@ -134,6 +141,7 @@ public class KVServer implements IKVServer {
 				  } catch (IOException e) {
 					e.printStackTrace();
 				  }
+				fileList.put(key, false);
 			}
 		} catch (Exception e) {
 			//TODO: handle exception
@@ -238,7 +246,7 @@ public class KVServer implements IKVServer {
 
 			for (int i = 0; i < listOfFiles.length; i++) {
 				if (listOfFiles[i].isFile()) {
-					fileList.put(listOfFiles[i].getName(), true);
+					fileList.put(listOfFiles[i].getName(), false);
 				} 
 			}
 		}
