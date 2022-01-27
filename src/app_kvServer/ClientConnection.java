@@ -7,9 +7,9 @@ import java.net.Socket;
 
 import org.apache.log4j.*;
 
+import shared.messages.IKVMessage;
 import shared.messages.KVMessage;
-import shared.messages.TextMessage;
-import shared.messages.KVMessage.StatusType;
+import shared.messages.IKVMessage.StatusType;
 
 /**
  * Represents a connection end point for a particular client that is 
@@ -54,16 +54,20 @@ public class ClientConnection implements Runnable {
 			
 			while (isOpen) {
 				try {
-					TextMessage latestMsg = receiveMessage();
+					KVMessage latestMsg = receiveMessage();
 					if (latestMsg == null) return;
 					switch (latestMsg.getStatus()) {
 						case PUT:
-							TextMessage putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
+							KVMessage putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
 							sendMessage(putRes);
 							break;
 						case GET:
-							TextMessage getRes = getKV(latestMsg.getKey());
+							KVMessage getRes = getKV(latestMsg.getKey());
 							sendMessage(getRes);
+							break;
+						case HEARTBEAT:
+							// Just echo it back 
+							sendMessage(latestMsg);
 							break;
 						default:
 							logger.warn("<" 
@@ -72,7 +76,7 @@ public class ClientConnection implements Runnable {
 							);
 							
 							// Send a bad request back to the client
-							TextMessage errorRes = new TextMessage(latestMsg.getKey(), 
+							KVMessage errorRes = new KVMessage(latestMsg.getKey(), 
 								"Bad request! Unknown status", 
 								StatusType.BAD_REQUEST
 							);
@@ -106,6 +110,10 @@ public class ClientConnection implements Runnable {
 					input.close();
 					output.close();
 					clientSocket.close();
+					logger.info("<" 
+						+ clientSocket.getInetAddress().getHostAddress() + ":" 
+						+ clientSocket.getPort() + "> Connection closed"
+					);
 				}
 			} catch (IOException ioe) {
 				logger.error("<" 
@@ -116,12 +124,12 @@ public class ClientConnection implements Runnable {
 		}
 	}
 
-	private TextMessage putKV(String key, String value) {
+	private KVMessage putKV(String key, String value) {
 		logger.info("<" 
 			+ clientSocket.getInetAddress().getHostAddress() + ":" 
 			+ clientSocket.getPort() + "> (PUT): KEY=" + key + " VALUE=" + value
 		);
-		TextMessage res;
+		KVMessage res;
 		
 		try {
 			StatusType putStatus;
@@ -134,30 +142,30 @@ public class ClientConnection implements Runnable {
 			}
 			server.putKV(key, value);
 			
-			res = new TextMessage(key, value, putStatus);
+			res = new KVMessage(key, value, putStatus);
 		} catch (Exception e) {
 			StatusType putStatus = value.equals("null") ? StatusType.DELETE_ERROR : StatusType.PUT_ERROR;
-			res = new TextMessage(key, value, putStatus);
+			res = new KVMessage(key, value, putStatus);
 		}
 		
 		return res;
 	}
 
-	private TextMessage getKV(String key) {
+	private KVMessage getKV(String key) {
 		logger.info("<" 
 			+ clientSocket.getInetAddress().getHostAddress() + ":" 
 			+ clientSocket.getPort() + "> (GET): KEY=" + key
 		);
 
 		String value;
-		TextMessage res;
+		KVMessage res;
 
 		try {
 			value = server.getKV(key);
-			res = new TextMessage(key, value, StatusType.GET_SUCCESS);
+			res = new KVMessage(key, value, StatusType.GET_SUCCESS);
 		} catch (Exception e) {
 			//TODO: handle exception
-			res = new TextMessage(key, e.getMessage(), StatusType.GET_ERROR);
+			res = new KVMessage(key, e.getMessage(), StatusType.GET_ERROR);
 		}
 		
 		return res;
@@ -168,19 +176,21 @@ public class ClientConnection implements Runnable {
 	 * @param msg the message that is to be sent.
 	 * @throws IOException some I/O error regarding the output stream 
 	 */
-	public void sendMessage(TextMessage msg) throws IOException {
+	public void sendMessage(KVMessage msg) throws IOException {
 		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 
-		logger.info("<" 
-			+ clientSocket.getInetAddress().getHostAddress() + ":" 
-			+ clientSocket.getPort() + "> (SEND): STATUS=" 
-			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
-		);
+		if (msg.getStatus() != StatusType.HEARTBEAT){
+			logger.info("<" 
+				+ clientSocket.getInetAddress().getHostAddress() + ":" 
+				+ clientSocket.getPort() + "> (SEND): STATUS=" 
+				+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
+			);
+		}
     }
 	
-	private TextMessage receiveMessage() throws IOException {
+	private KVMessage receiveMessage() throws IOException {
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
 		byte[] bufferBytes = new byte[BUFFER_SIZE];
@@ -242,13 +252,15 @@ public class ClientConnection implements Runnable {
 		msgBytes = tmp;
 		
 		/* build final result */
-		TextMessage msg = new TextMessage(msgBytes);
+		KVMessage msg = new KVMessage(msgBytes);
 
-		logger.info("<" 
-			+ clientSocket.getInetAddress().getHostAddress() + ":" 
-			+ clientSocket.getPort() + "> (RECEIVE): STATUS=" 
-			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
-		);
+		if (msg.getStatus() != StatusType.HEARTBEAT){
+			logger.info("<" 
+				+ clientSocket.getInetAddress().getHostAddress() + ":" 
+				+ clientSocket.getPort() + "> (RECEIVE): STATUS=" 
+				+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
+			);
+		}
 
 		return msg;
 	}

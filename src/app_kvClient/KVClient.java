@@ -4,11 +4,12 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.UnknownHostException;
+import java.net.SocketTimeoutException;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
-import shared.messages.KVMessage;
+import shared.messages.IKVMessage;
 
 import java.util.Date;
 
@@ -25,7 +26,7 @@ public class KVClient implements IKVClient {
 	private static final String PROMPT = "KVClient> ";
 	private BufferedReader stdin;
 	private KVStore store;
-    private boolean stop = false;
+    private boolean running = true;
 	private int serverPort;
 
     @Override
@@ -67,7 +68,7 @@ public class KVClient implements IKVClient {
 		// } catch (Exception e) {
 		// }
 		
-		while (!stop) {
+		while (running) {
 			stdin = new BufferedReader(new InputStreamReader(System.in));
 			System.out.print(PROMPT);
 			
@@ -75,14 +76,22 @@ public class KVClient implements IKVClient {
 				String cmdLine = stdin.readLine();
 				handleCommand(cmdLine);
 			} catch (IOException e) {
-				stop = true;
+				setRunning(false);
 				printError("CLI does not respond - Application terminated");
 				logger.fatal("CLI does not respond - Application terminated");
 			}
 		}
 	}
 
+	private void setRunning(boolean running) {
+		this.running = running;
+	}
+
     private void handleCommand(String cmdLine) {
+		if (cmdLine.trim().length() == 0) {
+			return;
+		}
+
 		logger.info("User input: " + cmdLine);
 		String[] tokens = cmdLine.split("\\s+");
 
@@ -148,13 +157,13 @@ public class KVClient implements IKVClient {
 			}
 		} else if (tokens[0].equals("quit")) {
 			if (tokens.length == 1) {
-				stop = true;
-				disconnectCommand();
+				quitCommand();
 				logger.info(PROMPT + "Application exit!");
 			} else {
 				printError("Expected 0 arguments");
 			}
 		} else {
+			printError(tokens.toString());
 			printError("Unknown command");
 			printHelp();
 		}
@@ -179,7 +188,7 @@ public class KVClient implements IKVClient {
 		logger.info("Trying to PUT key=" + key + " value=" + value);
 
 		try {
-			KVMessage res = store.put(key, value);
+			IKVMessage res = store.put(key, value);
 			switch (res.getStatus()) {
 				case PUT_SUCCESS:
 					System.out.println("SUCCESS: " + res.getKey() + " inserted");
@@ -203,7 +212,7 @@ public class KVClient implements IKVClient {
 					break;
 				}
 		} catch (Exception e) {
-			printError("PUT Error!");
+			printError("Server Error!");
 			logger.error(e);
 		}
 	}
@@ -212,7 +221,7 @@ public class KVClient implements IKVClient {
 		logger.info("Trying to GET key=" + key);
 		
 		try {
-			KVMessage res = store.get(key);
+			IKVMessage res = store.get(key);
 			switch (res.getStatus()) {
 				case GET_SUCCESS:
 					System.out.println("SUCCESS: " + key + " = " + res.getValue());
@@ -226,7 +235,7 @@ public class KVClient implements IKVClient {
 					break;
 			}
 		} catch (Exception e) {
-			printError("GET Error!");
+			printError("Server Error!");
 			logger.error(e);
 		}
 	}
@@ -240,6 +249,11 @@ public class KVClient implements IKVClient {
 		} else {
 			printError("Not connected!");
 		}
+	}
+
+	private void quitCommand() {
+		if (store != null) disconnectCommand();
+		setRunning(false);
 	}
 
     private void printHelp() {
