@@ -40,7 +40,6 @@ public class TextMessage implements Serializable, KVMessage {
 			byte[] valueBytes = new byte[MAX_VALUE];
 			System.arraycopy(msgBytes, MAX_STATUS + MAX_KEY, valueBytes, 0, msgBytes.length - (MAX_STATUS + MAX_KEY));
 			this.value = new String(valueBytes).trim();
-			// System.out.println("Length of value: " + this.value.length);
 		} else {
 			this.value = null;
 		}

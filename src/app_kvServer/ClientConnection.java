@@ -62,50 +62,65 @@ public class ClientConnection implements Runnable {
 							sendMessage(putRes);
 							break;
 						case GET:
-							System.out.println("GET");
-							System.out.println("Key:" + latestMsg.getKey());
 							TextMessage getRes = getKV(latestMsg.getKey());
 							sendMessage(getRes);
 							break;
 						default:
-							// TODO: Send an error to the user, probably need another StatusType value
-							System.out.println("Status:" + latestMsg.getStatus());
+							logger.warn("<" 
+								+ clientSocket.getInetAddress().getHostAddress() + ":" 
+								+ clientSocket.getPort() + "> Unrecognized Status! Status=" + latestMsg.getStatus()
+							);
+							
+							// Send a bad request back to the client
+							TextMessage errorRes = new TextMessage(latestMsg.getKey(), 
+								"Bad request! Unknown status", 
+								StatusType.BAD_REQUEST
+							);
+							sendMessage(errorRes);
 							break;
 					}
 					
 				/* connection either terminated by the client or lost due to 
 				 * network problems */	
 				} catch (IOException ioe) {
-					logger.error("Error! Connection lost!");
+					logger.error("<" 
+						+ clientSocket.getInetAddress().getHostAddress() + ":" 
+						+ clientSocket.getPort() + "> Error! Connection lost!"
+					);
 					isOpen = false;
 				}				
 			}
 			
 		} catch (IOException ioe) {
-			logger.error("Error! Connection could not be established!", ioe);
-			
+			logger.error("<" 
+				+ clientSocket.getInetAddress().getHostAddress() + ":" 
+				+ clientSocket.getPort() + "> Error! Connection could not be established!", ioe
+			);
 		} finally {
 			try {
 				if (clientSocket != null) {
-					logger.info("Tearing down connection with " + 
-						this.clientSocket.getInetAddress().getHostAddress() +
-						":" + this.clientSocket.getPort()
+					logger.info("<" 
+						+ clientSocket.getInetAddress().getHostAddress() + ":" 
+						+ clientSocket.getPort() + "> Tearing down connection ..."
 					);
 					input.close();
 					output.close();
 					clientSocket.close();
 				}
 			} catch (IOException ioe) {
-				logger.error("Error! Unable to tear down connection! Client: " + 
-					this.clientSocket.getInetAddress().getHostAddress() +
-					":" + this.clientSocket.getPort()
+				logger.error("<" 
+					+ clientSocket.getInetAddress().getHostAddress() + ":" 
+					+ clientSocket.getPort() + "> Error! Unable to tear down connection!", ioe
 				);
-				logger.error(ioe);
 			}
 		}
 	}
 
 	private TextMessage putKV(String key, String value) {
+		logger.info("<" 
+			+ clientSocket.getInetAddress().getHostAddress() + ":" 
+			+ clientSocket.getPort() + "> (PUT): KEY=" + key + " VALUE=" + value
+		);
 		TextMessage res;
 		
 		try {
@@ -129,6 +144,11 @@ public class ClientConnection implements Runnable {
 	}
 
 	private TextMessage getKV(String key) {
+		logger.info("<" 
+			+ clientSocket.getInetAddress().getHostAddress() + ":" 
+			+ clientSocket.getPort() + "> (GET): KEY=" + key
+		);
+
 		String value;
 		TextMessage res;
 
@@ -153,9 +173,9 @@ public class ClientConnection implements Runnable {
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
 
-		logger.info("SEND \t<" 
+		logger.info("<" 
 			+ clientSocket.getInetAddress().getHostAddress() + ":" 
-			+ clientSocket.getPort() + ">: STATUS=" 
+			+ clientSocket.getPort() + "> (SEND): STATUS=" 
 			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
 		);
     }
@@ -224,9 +244,9 @@ public class ClientConnection implements Runnable {
 		/* build final result */
 		TextMessage msg = new TextMessage(msgBytes);
 
-		logger.info("RECEIVE \t<" 
+		logger.info("<" 
 			+ clientSocket.getInetAddress().getHostAddress() + ":" 
-			+ clientSocket.getPort() + ">: STATUS=" 
+			+ clientSocket.getPort() + "> (RECEIVE): STATUS=" 
 			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
 		);
 

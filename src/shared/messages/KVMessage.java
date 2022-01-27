@@ -18,12 +18,6 @@ public interface KVMessage {
 
 		private static final StatusType[] hash = StatusType.values();
 
-		static {
-			for (StatusType p : hash) {
-				// System.out.println("StatusType=" + p.val);
-			}
-		}
-
 		StatusType(byte val) {
 			this.val = val;
 		}

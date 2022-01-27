@@ -46,6 +46,7 @@ public class KVServer implements IKVServer {
 	 */
 	public KVServer(int port, int cacheSize, CacheStrategy strategy) {
 		logger.info("Creating server. Config: port=" + port + " Cache Size=" + cacheSize + " Caching strategy=" + strategy);
+		
 		this.port = port;
 		this.cacheSize = cacheSize;
 		this.strategy = strategy;
@@ -206,10 +207,11 @@ public class KVServer implements IKVServer {
     public static void main(String[] args) {
     	try {
 			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-			new LogSetup("logs/server_" + fmt.format(new Date()) + ".log", Level.ALL);
-			if(args.length != 1) {
-				System.out.println("Error! Invalid number of arguments!");
-				System.out.println("Usage: Server <port>!");
+			new LogSetup("logs/server_" + fmt.format(new Date()) + ".log", Level.ALL, true);
+			if (args.length != 1) {
+				logger.error("Error! Invalid number of arguments!");
+				logger.error("Usage: Server <port>!");
+				System.exit(1);
 			} else {
 				int port = Integer.parseInt(args[0]);
 				// No need to use the run method here since the contructor is supposed to 
@@ -248,6 +250,7 @@ public class KVServer implements IKVServer {
 
 	private void initializeStorage() {
 		logger.info("Initializing storage ...");
+
 		try {
 			logger.info("Checking for storage directory at " + storageDirectory.getCanonicalPath());
 			// Ensure storage directory exists

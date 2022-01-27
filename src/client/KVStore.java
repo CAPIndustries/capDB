@@ -15,6 +15,7 @@ import shared.messages.KVMessage.StatusType;
 public class KVStore implements KVCommInterface {
 
 	private static Logger logger = Logger.getRootLogger();
+	private static final String PROMPT = "KVStore> ";
 	private boolean running;
 	private String address;
 	private int port;
@@ -39,35 +40,43 @@ public class KVStore implements KVCommInterface {
 	
 	@Override
 	public void connect() throws UnknownHostException, IOException {
+		System.out.println(PROMPT + "Trying to connect ...");
+		logger.info("Trying to connect ...");
+
 		clientSocket = new Socket(address, port);
 		output = clientSocket.getOutputStream();
 		input = clientSocket.getInputStream();
+		// TODO: Set timeout here
 		setRunning(true);
+
+		System.out.println(PROMPT + "Connected!");
+		logger.info("Connection established to " + address + " on port " + port);
 	}
 
 	@Override
 	public void disconnect() {
 		try {
+			System.out.println(PROMPT + "Trying to disconnect ...");
+			logger.info("Trying to disconnect ...");
 			setRunning(false);
 			if (clientSocket != null) {
 				input.close();
 				output.close();
 				clientSocket.close();
 				clientSocket = null;
+				System.out.println(PROMPT + "Connection closed!");
 				logger.info("Connection closed!");
 			}
 		} catch (IOException ioe) {
-			logger.error("Unable to close connection!");
-			logger.error(ioe);
+			printError("Unable to close connection!");
+			logger.error("Unable to close connection!", ioe);
 		}
 	}
 
 	@Override
 	public KVMessage put(String key, String value) throws Exception {
 		TextMessage msg = new TextMessage(key, value, StatusType.PUT);
-		byte[] msgBytes = msg.getMsgBytes();
-		output.write(msgBytes, 0, msgBytes.length);
-		output.flush();
+		sendMessage(msg);
 		
 		TextMessage res = receiveMessage();
 
@@ -77,9 +86,7 @@ public class KVStore implements KVCommInterface {
 	@Override
 	public KVMessage get(String key) throws Exception {
 		TextMessage msg = new TextMessage(key, null, StatusType.GET);
-		byte[] msgBytes = msg.getMsgBytes();
-		output.write(msgBytes, 0, msgBytes.length);
-		output.flush();
+		sendMessage(msg);
 
 		TextMessage res = receiveMessage();
 
@@ -158,6 +165,24 @@ public class KVStore implements KVCommInterface {
 		/* build final result */
 		TextMessage msg = new TextMessage(msgBytes);
 		
+		logger.info("RECEIVE: STATUS=" 
+			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
+		);
+
 		return msg;
     }
+
+	public void sendMessage(TextMessage msg) throws IOException {
+		byte[] msgBytes = msg.getMsgBytes();
+		output.write(msgBytes, 0, msgBytes.length);
+		output.flush();
+
+		logger.info("SEND: STATUS=" 
+			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
+		);
+    }
+
+	private void printError(String error) {
+		System.out.println(PROMPT + "Error! " +  error);
+	}
 }
