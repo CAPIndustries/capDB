@@ -37,30 +37,28 @@ public class KVStore implements KVCommInterface {
 		this.port = port;
 	}
 	
-	// public void connect() throws Exception {
 	@Override
 	public void connect() throws UnknownHostException, IOException {
 		clientSocket = new Socket(address, port);
 		output = clientSocket.getOutputStream();
 		input = clientSocket.getInputStream();
 		setRunning(true);
-		logger.info("Connection established");
 	}
 
 	@Override
 	public void disconnect() {
-		logger.info("try to disconnect ...");
 		try {
 			setRunning(false);
 			if (clientSocket != null) {
-				//input.close();
-				//output.close();
+				input.close();
+				output.close();
 				clientSocket.close();
 				clientSocket = null;
-				logger.info("connection closed!");
+				logger.info("Connection closed!");
 			}
 		} catch (IOException ioe) {
 			logger.error("Unable to close connection!");
+			logger.error(ioe);
 		}
 	}
 
@@ -72,9 +70,6 @@ public class KVStore implements KVCommInterface {
 		output.flush();
 		
 		TextMessage res = receiveMessage();
-		System.out.println("Status:" + res.getStatus());
-		System.out.println("Key:" + res.getKey());
-		System.out.println("Value:" + res.getValue());
 
 		return res;
 	}
@@ -87,9 +82,6 @@ public class KVStore implements KVCommInterface {
 		output.flush();
 
 		TextMessage res = receiveMessage();
-		System.out.println("Status:" + res.getStatus());
-		System.out.println("Key:" + key);
-		System.out.println("Value:" + res.getValue());
 
 		return res;
 	}
@@ -103,16 +95,7 @@ public class KVStore implements KVCommInterface {
 	}
 
 	public synchronized void closeConnection() {
-		logger.info("try to close connection ...");
-		
-		// try {
-		// 	// tearDownConnection();
-		// 	// for(ClientSocketListener listener : listeners) {
-		// 	// 	listener.handleStatus(SocketStatus.DISCONNECTED);
-		// 	// }
-		// } catch (IOException ioe) {
-		// 	logger.error("Unable to close connection!");
-		// }
+		disconnect();
 	}
 
 	private TextMessage receiveMessage() throws IOException {
@@ -124,7 +107,7 @@ public class KVStore implements KVCommInterface {
 		byte read = (byte) input.read();	
 		boolean reading = true;
 
-		System.out.println("First read:" + read);
+		logger.debug("First read:" + read);
 		
 		while (read != LINE_FEED && read != -1 && reading) {/* LF, error, drop */
 			/* if buffer filled, copy to msg array */
@@ -159,7 +142,7 @@ public class KVStore implements KVCommInterface {
 			read = (byte) input.read();
 		}
 
-		System.out.println("Last read:" + read);
+		logger.debug("Last read:" + read);
 		
 		if(msgBytes == null){
 			tmp = new byte[index];
@@ -174,7 +157,7 @@ public class KVStore implements KVCommInterface {
 		
 		/* build final result */
 		TextMessage msg = new TextMessage(msgBytes);
-		// logger.info("Receive message:\t '" + msg.getMsg() + "'");
+		
 		return msg;
     }
 }

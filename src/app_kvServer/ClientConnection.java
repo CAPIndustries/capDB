@@ -52,14 +52,12 @@ public class ClientConnection implements Runnable {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
 			
-			while(isOpen) {
+			while (isOpen) {
 				try {
 					TextMessage latestMsg = receiveMessage();
+					if (latestMsg == null) return;
 					switch (latestMsg.getStatus()) {
 						case PUT:
-							System.out.println("PUT");
-							System.out.println("Key:" + latestMsg.getKey());
-							System.out.println("Value:" + latestMsg.getValue());
 							TextMessage putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
 							sendMessage(putRes);
 							break;
@@ -76,7 +74,7 @@ public class ClientConnection implements Runnable {
 					}
 					
 				/* connection either terminated by the client or lost due to 
-				 * network problems*/	
+				 * network problems */	
 				} catch (IOException ioe) {
 					logger.error("Error! Connection lost!");
 					isOpen = false;
@@ -87,15 +85,22 @@ public class ClientConnection implements Runnable {
 			logger.error("Error! Connection could not be established!", ioe);
 			
 		} finally {
-			
 			try {
 				if (clientSocket != null) {
+					logger.info("Tearing down connection with " + 
+						this.clientSocket.getInetAddress().getHostAddress() +
+						":" + this.clientSocket.getPort()
+					);
 					input.close();
 					output.close();
 					clientSocket.close();
 				}
 			} catch (IOException ioe) {
-				logger.error("Error! Unable to tear down connection!", ioe);
+				logger.error("Error! Unable to tear down connection! Client: " + 
+					this.clientSocket.getInetAddress().getHostAddress() +
+					":" + this.clientSocket.getPort()
+				);
+				logger.error(ioe);
 			}
 		}
 	}
@@ -104,13 +109,20 @@ public class ClientConnection implements Runnable {
 		TextMessage res;
 		
 		try {
-			StatusType putStatus = server.inStorage(key) ? StatusType.PUT_UPDATE : StatusType.PUT_SUCCESS;
+			StatusType putStatus;
+			if (value.equals("null")) {
+				putStatus = StatusType.DELETE_SUCCESS;
+			} else if (server.inStorage(key)) {
+				putStatus = StatusType.PUT_UPDATE;
+			} else {
+				putStatus = StatusType.PUT_SUCCESS;
+			}
 			server.putKV(key, value);
-
+			
 			res = new TextMessage(key, value, putStatus);
 		} catch (Exception e) {
-			//TODO: handle exception
-			res = new TextMessage(key, value, StatusType.PUT_ERROR);
+			StatusType putStatus = value.equals("null") ? StatusType.DELETE_ERROR : StatusType.PUT_ERROR;
+			res = new TextMessage(key, value, putStatus);
 		}
 		
 		return res;
@@ -140,10 +152,12 @@ public class ClientConnection implements Runnable {
 		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
-		// logger.info("SEND \t<" 
-		// 		+ clientSocket.getInetAddress().getHostAddress() + ":" 
-		// 		+ clientSocket.getPort() + ">: '" 
-		// 		+ msg.getMsg() +"'");
+
+		logger.info("SEND \t<" 
+			+ clientSocket.getInetAddress().getHostAddress() + ":" 
+			+ clientSocket.getPort() + ">: STATUS=" 
+			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
+		);
     }
 	
 	private TextMessage receiveMessage() throws IOException {
@@ -155,7 +169,11 @@ public class ClientConnection implements Runnable {
 		byte read = (byte) input.read();	
 		boolean reading = true;
 
-		System.out.println("First read:" + read);
+		if (read == -1) {
+			return null;
+		}
+
+		logger.debug("First read:" + read);
 
 		while (read != LINE_FEED && read != -1 && reading) {/* LF, error, drop*/
 			/* if buffer filled, copy to msg array */
@@ -190,13 +208,9 @@ public class ClientConnection implements Runnable {
 			read = (byte) input.read();
 		}
 
-		System.out.println("Last read:" + read);
-		// if (read == -1) {
-		// 	System.out.println("Its -1");
-		// 	isOpen = false;
-		// }
+		logger.debug("Last read:" + read);
 		
-		if(msgBytes == null){
+		if (msgBytes == null){
 			tmp = new byte[index];
 			System.arraycopy(bufferBytes, 0, tmp, 0, index);
 		} else {
@@ -209,10 +223,13 @@ public class ClientConnection implements Runnable {
 		
 		/* build final result */
 		TextMessage msg = new TextMessage(msgBytes);
-		// logger.info("RECEIVE \t<" 
-		// 		+ clientSocket.getInetAddress().getHostAddress() + ":" 
-		// 		+ clientSocket.getPort() + ">: '" 
-		// 		+ msg.getMsg().trim() + "'");
+
+		logger.info("RECEIVE \t<" 
+			+ clientSocket.getInetAddress().getHostAddress() + ":" 
+			+ clientSocket.getPort() + ">: STATUS=" 
+			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
+		);
+
 		return msg;
 	}
 }

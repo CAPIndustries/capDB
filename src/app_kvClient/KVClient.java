@@ -10,12 +10,14 @@ import org.apache.log4j.Logger;
 
 import shared.messages.KVMessage;
 
+import java.util.Date;
+
+import java.text.SimpleDateFormat;
+
 import logger.LogSetup;
 
 import client.KVStore;
 import client.KVCommInterface;
-
-// TODO: Use the logger more extensively
 
 public class KVClient implements IKVClient {
 
@@ -28,8 +30,10 @@ public class KVClient implements IKVClient {
 
     @Override
     public void newConnection(String hostname, int port) throws UnknownHostException, IOException {
+		logger.info("Trying to connect to: " + hostname + ":" + port);
 		store = new KVStore(hostname, port);
 		store.connect();
+		logger.info("Connected");
     }
 
     @Override
@@ -43,7 +47,8 @@ public class KVClient implements IKVClient {
      */
     public static void main(String[] args) {
     	try {
-			new LogSetup("logs/client.log", Level.OFF);
+			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
+			new LogSetup("logs/client_" + fmt.format(new Date()) + ".log", Level.ALL);
 			KVClient app = new KVClient();
 			app.run();
 		} catch (IOException e) {
@@ -62,7 +67,7 @@ public class KVClient implements IKVClient {
 		} catch (Exception e) {
 		}
 		
-		while(!stop) {
+		while (!stop) {
 			stdin = new BufferedReader(new InputStreamReader(System.in));
 			System.out.print(PROMPT);
 			
@@ -71,7 +76,8 @@ public class KVClient implements IKVClient {
 				this.handleCommand(cmdLine);
 			} catch (IOException e) {
 				stop = true;
-				printError("CLI does not respond - Application terminated ");
+				printError("CLI does not respond - Application terminated");
+				logger.fatal("CLI does not respond - Application terminated");
 			}
 		}
 	}
@@ -79,19 +85,19 @@ public class KVClient implements IKVClient {
     private void handleCommand(String cmdLine) {
 		String[] tokens = cmdLine.split("\\s+");
 
-		if(tokens[0].equals("connect")) {	
+		if (tokens[0].equals("connect")) {	
 			if(tokens.length == 3) {
 				connectCommand(tokens[1], tokens[2]);
 			} else {
 				printError("Expected 2 arguments: connect <address> <port>");
 			}
 		} else if (tokens[0].equals("disconnect")  && tokens.length == 1) {
-			disconnect();
+			disconnectCommand();
 		} else if (tokens[0].equals("put")) {
-			if(tokens.length >= 3) {
-				if(store != null && store.isRunning()){
+			if (tokens.length >= 3) {
+				if (store != null && store.isRunning()) {
 					StringBuilder msg = new StringBuilder();
-					for(int i = 2; i < tokens.length; i++) {
+					for (int i = 2; i < tokens.length; i++) {
 						msg.append(tokens[i]);
 						if (i != tokens.length - 1) {
 							msg.append(" ");
@@ -107,7 +113,7 @@ public class KVClient implements IKVClient {
 			}
 		} else if (tokens[0].equals("get")) {
 			if(tokens.length == 2) {
-				if(store != null && store.isRunning()){
+				if (store != null && store.isRunning()){
 					getCommand(tokens[1]);
 				} else {
 					printError("Not connected!");
@@ -118,7 +124,7 @@ public class KVClient implements IKVClient {
 		} else if (tokens[0].equals("logLevel")) {
 			if (tokens.length == 2) {
 				String level = setLevel(tokens[1]);
-				if(level.equals(LogSetup.UNKNOWN_LEVEL)) {
+				if (level.equals(LogSetup.UNKNOWN_LEVEL)) {
 					printError("No valid log level!");
 					printPossibleLogLevels();
 				} else {
@@ -134,10 +140,10 @@ public class KVClient implements IKVClient {
 			} else {
 				printError("Expected 0 arguments");
 			}
-		} else if (tokens[0].equals("quit")){
+		} else if (tokens[0].equals("quit")) {
 			if (tokens.length == 1) {
 				stop = true;
-				disconnect();
+				disconnectCommand();
 				System.out.println(PROMPT + "Application exit!");
 			} else {
 				printError("Expected 0 arguments");
@@ -149,14 +155,16 @@ public class KVClient implements IKVClient {
 	}
 
 	private void connectCommand(String hostname, String port) {
+		logger.info("Trying to connect ...");
 		try {
 			this.newConnection(hostname, Integer.parseInt(port));
-		} catch(NumberFormatException nfe) {
+			logger.info("Connection established to " + hostname + " on port " + port);
+		} catch (NumberFormatException nfe) {
 			printError("No valid address. Port must be a number!");
-			logger.info("Unable to parse argument <port>", nfe);
+			logger.warn("Unable to parse argument <port>", nfe);
 		} catch (UnknownHostException e) {
 			printError("Unknown Host!");
-			logger.info("Unknown Host!", e);
+			logger.warn("Unknown Host!", e);
 		} catch (IOException e) {
 			printError("Could not establish connection!");
 			logger.warn("Could not establish connection!", e);
@@ -164,52 +172,68 @@ public class KVClient implements IKVClient {
 	}
 
 	private void putCommand(String key, String value) {
+		logger.info("Trying to PUT key=" + key + " value=" + value);
 		try {
 			KVMessage res = store.put(key, value);
 			switch (res.getStatus()) {
 				case PUT_SUCCESS:
-					System.out.println("SUCCESS: " + key + " inserted");
+					System.out.println("SUCCESS: " + res.getKey() + " inserted");
+					logger.info("PUT INSERT SUCCESS");
 					break;
 				case PUT_UPDATE:
 					String msg = value.equals("null") ? " deleted" : " updated";
-					System.out.println("SUCCESS: " + key + msg);
+					System.out.println("SUCCESS: " + res.getKey() + msg);
+					logger.info("PUT UPDATE SUCCESS");
 					break;
 				case PUT_ERROR:
-					System.out.println("ERROR: PUT operation with key " + key + " failed: " + res.getValue());
+					System.out.println("ERROR: PUT operation with key " + res.getKey() + " failed: " + res.getValue());
+					logger.info("PUT FAILED");
+					break;
+				case DELETE_SUCCESS:
+					System.out.println("SUCCESS: DELETE operation with key " + res.getKey());
+					logger.info("DELETE SUCCESS");
+					break;
+				case DELETE_ERROR:
+					System.out.println("ERROR: DELETE operation with key " + res.getKey() + " failed: " + res.getValue());
+					logger.info("DELETE FAILED");
 					break;
 				default:
 					System.out.println("ERROR: Unknown status returned for PUT");
+					logger.error("ERROR: Unknown status return for PUT:" + res.getStatus());
 					break;
-			}
+				}
 		} catch (Exception e) {
-			e.printStackTrace();
-			System.out.println(e);
 			printError("PUT Error!");
+			logger.error(e);
 		}
 	}
 
 	private void getCommand(String key) {
+		logger.info("Trying to GET key=" + key);
 		try {
 			KVMessage res = store.get(key);
 			switch (res.getStatus()) {
 				case GET_SUCCESS:
 					System.out.println("SUCCESS: " + key + " = " + res.getValue());
+					logger.info("GET SUCCESS");
 					break;
 				case GET_ERROR:
 					System.out.println("ERROR: GET operation with key " + key + " failed: " + res.getValue());
+					logger.info("GET FAILED");
 					break;
 				default:
 					System.out.println("ERROR: Unknown status returned for GET");
+					logger.error("ERROR: Unknown status return for GET:" + res.getStatus());
 					break;
 			}
 		} catch (Exception e) {
-			e.printStackTrace();
-			System.out.println(e);
 			printError("GET Error!");
+			logger.error(e);
 		}
 	}
 
-    private void disconnect() {
+    private void disconnectCommand() {
+		logger.info("Trying to disconnect ...");
 		if (store != null) {
 			store.closeConnection();
 			store = null;
@@ -252,6 +276,7 @@ public class KVClient implements IKVClient {
 	}
 
 	private String setLevel(String levelString) {
+		logger.info("Changing log levels to " + levelString);
 		if (levelString.equals(Level.ALL.toString())) {
 			logger.setLevel(Level.ALL);
 			return Level.ALL.toString();

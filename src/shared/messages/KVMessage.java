@@ -11,7 +11,8 @@ public interface KVMessage {
 		PUT_UPDATE		((byte)5), 	/* Put - request successful, i.e. value updated */
 		PUT_ERROR		((byte)6), 	/* Put - request not successful */
 		DELETE_SUCCESS	((byte)7),	/* Delete - request successful */
-		DELETE_ERROR	((byte)8);	/* Delete - request successful */
+		DELETE_ERROR	((byte)8),	/* Delete - request successful */
+		BAD_REQUEST		((byte)9);	/* Server received a bad request */
 
 		private final byte val;
 

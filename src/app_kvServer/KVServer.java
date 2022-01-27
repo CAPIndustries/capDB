@@ -8,8 +8,11 @@ import java.io.IOException;
 import java.io.File;
 import java.io.FileWriter;
 
+import java.util.Date;
 import java.util.Scanner;
 import java.util.HashMap;
+
+import java.text.SimpleDateFormat;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -20,6 +23,8 @@ public class KVServer implements IKVServer {
 
 	private static Logger logger = Logger.getRootLogger();
 	private static final String STORAGE_DIRECTORY = "storage/";
+	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.None;
+	private static final int START_CACHE_SIZE = 0;
 	private int port;
 	private int cacheSize;
 	private CacheStrategy strategy;
@@ -40,6 +45,7 @@ public class KVServer implements IKVServer {
 	 *           and "LFU".
 	 */
 	public KVServer(int port, int cacheSize, CacheStrategy strategy) {
+		logger.info("Creating server. Config: port=" + port + " Cache Size=" + cacheSize + " Caching strategy=" + strategy);
 		this.port = port;
 		this.cacheSize = cacheSize;
 		this.strategy = strategy;
@@ -48,67 +54,73 @@ public class KVServer implements IKVServer {
 	}
 	
 	@Override
-	public int getPort(){
+	public int getPort() {
 		return this.port;
 	}
 
 	@Override
-    public String getHostname(){
+    public String getHostname() {
 		return serverSocket.getInetAddress().getHostName();
 	}
 
 	@Override
-    public CacheStrategy getCacheStrategy(){
+    public CacheStrategy getCacheStrategy() {
 		return this.strategy;
 	}
 
 	@Override
-    public int getCacheSize(){
+    public int getCacheSize() {
 		return this.cacheSize;
 	}
 
 	@Override
-    public boolean inCache(String key){
+    public boolean inCache(String key) {
 		// TODO Auto-generated method stub
 		return false;
 	}
 
 	@Override
-    public void clearCache(){
+    public void clearCache() {
 		// TODO Auto-generated method stub
 	}
 
 	@Override
-    public boolean inStorage(String key){
+    public boolean inStorage(String key) {
 		// TODO: See if someone is writing to fileList first
 		return fileList.containsKey(key);
 	}
 
 	@Override
-    public void clearStorage(){
+    public void clearStorage() {
+		logger.info("Clearing storage");
 		fileList.clear();
 		File[] allContents = storageDirectory.listFiles();
+		logger.info("Deleting " + allContents.length + " records");
 		if (allContents != null) {
 			for (File file : allContents) {
 				file.delete();
 			}
 		}
+		logger.info("Storage cleared");
 	}
 
 	@Override
     public String getKV(String key) throws Exception {
+		logger.info("GET for key=" + key);
 		// Check if key exists
 		if (!inStorage(key)) {
+			logger.info("KEY does not exist");
 			throw new Exception("Key does not exist");
 		} else {
 			File file = new File(STORAGE_DIRECTORY + key);
 			StringBuilder fileContents = new StringBuilder((int)file.length());        
 			String value;
-
+			
 			try (Scanner scanner = new Scanner(file)) {
 				while (scanner.hasNextLine()) {
 					fileContents.append(scanner.nextLine() + System.lineSeparator());
 				}
+				logger.info("Found key");
 				return fileContents.toString().trim();
 			}
 		}
@@ -116,8 +128,10 @@ public class KVServer implements IKVServer {
 
 	@Override
     public void putKV(String key, String value) throws Exception {
+		logger.info("PUT for key=" + key + " value=" + value);
 		try {
 			if (value.equals("null")) {
+				logger.info("Deleting record");
 				// Delete the key
 				// TODO: Get a lock on the fileList since I'm updating/writing to it
 				fileList.remove(key);
@@ -125,6 +139,7 @@ public class KVServer implements IKVServer {
 				file.delete();
 				// TODO: Do you have to return an error if the key DNE?
 			} else {
+				logger.info("Inserting/updating record");
 				// Insert/replace the key
 				fileList.put(key, true);
 				try {
@@ -132,20 +147,20 @@ public class KVServer implements IKVServer {
 					myWriter.write(value);
 					myWriter.close();
 				  } catch (IOException e) {
-					e.printStackTrace();
+					logger.error(e);
 				  }
 			}
 		} catch (Exception e) {
-			//TODO: handle exception
+			logger.error(e);
 		}
 	}
 
 	@Override
-    public void run(){
-		running = initializeServer();
+    public void run() {
+		setRunning(initializeServer());
         
-        if(serverSocket != null) {
-	        while(isRunning()){
+        if (serverSocket != null) {
+	        while (isRunning()) {
 	            try {
 	                Socket client = serverSocket.accept();                
 	                ClientConnection connection = 
@@ -153,8 +168,8 @@ public class KVServer implements IKVServer {
 	                new Thread(connection).start();
 	                
 	                logger.info("Connected to " 
-	                		+ client.getInetAddress().getHostName() 
-	                		+  " on port " + client.getPort());
+	                		+ client.getInetAddress().getHostAddress() 
+	                		+  ":" + client.getPort());
 	            } catch (IOException e) {
 	            	logger.error("Error! " +
 	            			"Unable to establish connection. \n", e);
@@ -167,14 +182,17 @@ public class KVServer implements IKVServer {
 	// TODO: Difference between kill and close?
 	@Override
     public void kill(){
-		// TODO Auto-generated method stub
+		close();
 	}
 
 	@Override
-    public void close(){
-		running = false;
+    public void close() {
+		logger.info("Closing server ...");
+		setRunning(false);
+
         try {
 			serverSocket.close();
+			logger.info("Server closed");
 		} catch (IOException e) {
 			logger.error("Error! " +
 					"Unable to close socket on port: " + port, e);
@@ -187,7 +205,8 @@ public class KVServer implements IKVServer {
      */
     public static void main(String[] args) {
     	try {
-			new LogSetup("logs/server.log", Level.ALL);
+			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
+			new LogSetup("logs/server_" + fmt.format(new Date()) + ".log", Level.ALL);
 			if(args.length != 1) {
 				System.out.println("Error! Invalid number of arguments!");
 				System.out.println("Usage: Server <port>!");
@@ -196,7 +215,7 @@ public class KVServer implements IKVServer {
 				// No need to use the run method here since the contructor is supposed to 
 				// start the server on its own
 				// TODO: Allow passing additional arguments from the command line:
-				new KVServer(port, 0, CacheStrategy.None);
+				new KVServer(port, START_CACHE_SIZE, START_CACHE_STRATEGY);
 			}
 		} catch (IOException e) {
 			System.out.println("Error! Unable to initialize logger!");
@@ -210,17 +229,17 @@ public class KVServer implements IKVServer {
     }
 
 	private boolean initializeServer() {
-    	logger.info("Initialize server ...");
+    	logger.info("Initializing server ...");
 		initializeStorage();
+
     	try {
             serverSocket = new ServerSocket(port);
             logger.info("Server listening on port: " 
             		+ serverSocket.getLocalPort());    
             return true;
-        
         } catch (IOException e) {
         	logger.error("Error! Cannot open server socket:");
-            if(e instanceof BindException){
+            if (e instanceof BindException) {
             	logger.error("Port " + port + " is already bound!");
             }
             return false;
@@ -228,19 +247,27 @@ public class KVServer implements IKVServer {
     }
 
 	private void initializeStorage() {
-		logger.info("Initialize storage ...");
-		// Ensure storage directory exists
-		if (!storageDirectory.exists()){
-			storageDirectory.mkdir();
-		} else {
-			// Load all the data
-			File[] listOfFiles = storageDirectory.listFiles();
-
-			for (int i = 0; i < listOfFiles.length; i++) {
-				if (listOfFiles[i].isFile()) {
-					fileList.put(listOfFiles[i].getName(), true);
-				} 
+		logger.info("Initializing storage ...");
+		try {
+			logger.info("Checking for storage directory at " + storageDirectory.getCanonicalPath());
+			// Ensure storage directory exists
+			if (!storageDirectory.exists()){
+				logger.info("Storage directory does not exist. Creating new directory.");
+				storageDirectory.mkdir();
+			} else {
+				logger.info("Storage directory exists. Loading data ...");
+				// Load all the data
+				File[] listOfFiles = storageDirectory.listFiles();
+				
+				for (int i = 0; i < listOfFiles.length; i++) {
+					if (listOfFiles[i].isFile()) {
+						fileList.put(listOfFiles[i].getName(), true);
+					} 
+				}
+				logger.info("Data successfully loaded");
 			}
+		} catch (Exception e) {
+			logger.error(e);
 		}
 	}
 
