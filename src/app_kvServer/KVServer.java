@@ -11,6 +11,8 @@ import java.io.FileWriter;
 import java.util.Date;
 import java.util.Scanner;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.LinkedHashMap;
 
 import java.text.SimpleDateFormat;
 
@@ -21,18 +23,20 @@ import logger.LogSetup;
 
 public class KVServer implements IKVServer {
 
-	private static Logger logger = Logger.getRootLogger();
 	private static final String STORAGE_DIRECTORY = "storage/";
-	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.None;
-	private static final int START_CACHE_SIZE = 0;
+	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.LRU;
+	private static final int START_CACHE_SIZE = 16;
+
+	private static Logger logger = Logger.getRootLogger();
 	private int port;
 	private int cacheSize;
 	private CacheStrategy strategy;
 	private ServerSocket serverSocket;
 	private boolean running;
-	File storageDirectory = new File(STORAGE_DIRECTORY);
+	private File storageDirectory = new File(STORAGE_DIRECTORY);
 
-	HashMap<String, Boolean> fileList = new HashMap<String, Boolean>();
+	private HashMap<String, Boolean> fileList = new HashMap<String, Boolean>();
+	private LinkedHashMap<String, String> cache;
 
 	/**
 	 * Start KV Server at given port
@@ -44,12 +48,22 @@ public class KVServer implements IKVServer {
 	 *           currently not contained in the cache. Options are "FIFO", "LRU",
 	 *           and "LFU".
 	 */
-	public KVServer(int port, int cacheSize, CacheStrategy strategy) {
+	public KVServer(int port, final int cacheSize, CacheStrategy strategy) {
 		logger.info("Creating server. Config: port=" + port + " Cache Size=" + cacheSize + " Caching strategy=" + strategy);
 		
 		this.port = port;
 		this.cacheSize = cacheSize;
 		this.strategy = strategy;
+
+		if (strategy == CacheStrategy.LRU) {
+			cache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true){
+				protected boolean removeEldestEntry(Map.Entry eldest) {
+					return size() > cacheSize;
+				}
+			};
+		} else {
+			logger.warn("Unimplemented caching strategy: " + strategy);
+		}
 
 		this.run();
 	}
@@ -76,13 +90,15 @@ public class KVServer implements IKVServer {
 
 	@Override
     public boolean inCache(String key) {
-		// TODO Auto-generated method stub
+		if (cache != null) {
+			return cache.containsKey(key);
+		}
 		return false;
 	}
 
 	@Override
     public void clearCache() {
-		// TODO Auto-generated method stub
+		if (cache != null) cache.clear();
 	}
 
 	@Override
@@ -113,6 +129,11 @@ public class KVServer implements IKVServer {
 			logger.info("KEY does not exist");
 			throw new Exception("Key does not exist");
 		} else {
+			if (inCache(key)) {
+				logger.info("Cache hit!");
+				return cache.get(key);
+			}
+
 			File file = new File(STORAGE_DIRECTORY + key);
 			StringBuilder fileContents = new StringBuilder((int)file.length());        
 			String value;
@@ -133,6 +154,7 @@ public class KVServer implements IKVServer {
 		try {
 			if (value.equals("null")) {
 				logger.info("Deleting record");
+				cache.put(key, "null"); // TODO: This invalidates it
 				// Delete the key
 				// TODO: Get a lock on the fileList since I'm updating/writing to it
 				fileList.remove(key);
@@ -143,6 +165,7 @@ public class KVServer implements IKVServer {
 				logger.info("Inserting/updating record");
 				// Insert/replace the key
 				fileList.put(key, true);
+				cache.put(key, value);
 				try {
 					FileWriter myWriter = new FileWriter("storage/" + key);
 					myWriter.write(value);

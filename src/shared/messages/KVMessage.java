@@ -8,17 +8,18 @@ import java.io.Serializable;
  */
 public class KVMessage implements Serializable, IKVMessage {
 
-	private String key;
-	private String value;
-	private StatusType status;
-	private byte[] msgBytes;
-	
 	private static final long serialVersionUID = 5549512212003782618L;
 	private static final char LINE_FEED = 0x0A;
 	private static final char RETURN = 0x0D;	
 	private static final int MAX_KEY = 20;	
 	private static final int MAX_VALUE = 20000;	
 	private static final int MAX_STATUS = 1;	
+	
+	private String key;
+	private String value;
+	private StatusType status;
+	private byte[] msgBytes;
+	
 	
     /**
      * Constructs a TextMessage object with a given array of bytes that 

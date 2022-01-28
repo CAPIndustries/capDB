@@ -22,8 +22,9 @@ import client.KVCommInterface;
 
 public class KVClient implements IKVClient {
 
-	private static Logger logger = Logger.getRootLogger();
 	private static final String PROMPT = "KVClient> ";
+	
+	private static Logger logger = Logger.getRootLogger();
 	private BufferedReader stdin;
 	private KVStore store;
     private boolean running = true;

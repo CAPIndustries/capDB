@@ -20,8 +20,15 @@ import shared.messages.IKVMessage.StatusType;
 
 public class KVStore implements KVCommInterface {
 
-	private static Logger logger = Logger.getRootLogger();
 	private static final String PROMPT = "KVStore> ";
+	private static final int HEARTBEAT_INTERVAL = 1000;
+	private static final int HEARTBEAT_TRANSMISSION = HEARTBEAT_INTERVAL * 10;
+	private static final int BUFFER_SIZE = 1024;
+	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
+	private static final char LINE_FEED = 0x0A;
+	private static final char RETURN = 0x0D;
+	
+	private static Logger logger = Logger.getRootLogger();
 	private boolean running;
 	private String address;
 	private int port;
@@ -30,13 +37,6 @@ public class KVStore implements KVCommInterface {
  	private InputStream input;
 	private long lastResponse;
 	ScheduledFuture<?> heartbeatThread;
-
-	private static final int HEARTBEAT_INTERVAL = 1000;
-	private static final int HEARTBEAT_TRANSMISSION = HEARTBEAT_INTERVAL * 10;
-	private static final int BUFFER_SIZE = 1024;
-	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
-	private static final char LINE_FEED = 0x0A;
-	private static final char RETURN = 0x0D;
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -101,9 +101,7 @@ public class KVStore implements KVCommInterface {
 		KVMessage msg = new KVMessage(key, null, StatusType.GET);
 		sendMessage(msg, false);
 		
-		System.out.println("x");
 		KVMessage res = receiveMessage(false);
-		System.out.println("y");
 
 		return res;
 	}
