@@ -119,6 +119,7 @@ public class KVServer implements IKVServer {
 			}
 		}
 		logger.info("Storage cleared");
+		clearCache();
 	}
 
 	@Override
@@ -130,7 +131,7 @@ public class KVServer implements IKVServer {
 			throw new Exception("Key does not exist");
 		} else {
 			if (inCache(key)) {
-				logger.info("Cache hit!");
+				logger.debug("Cache hit!");
 				return cache.get(key);
 			}
 
@@ -154,7 +155,7 @@ public class KVServer implements IKVServer {
 		try {
 			if (value.equals("null")) {
 				logger.info("Deleting record");
-				cache.put(key, "null"); // TODO: This invalidates it
+				cache.remove(key)
 				// Delete the key
 				// TODO: Get a lock on the fileList since I'm updating/writing to it
 				fileList.remove(key);
@@ -170,9 +171,9 @@ public class KVServer implements IKVServer {
 					FileWriter myWriter = new FileWriter("storage/" + key);
 					myWriter.write(value);
 					myWriter.close();
-				  } catch (IOException e) {
+				} catch (IOException e) {
 					logger.error(e);
-				  }
+				}
 			}
 		} catch (Exception e) {
 			logger.error(e);
