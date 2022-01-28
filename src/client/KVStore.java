@@ -23,6 +23,7 @@ public class KVStore implements KVCommInterface {
 	private static final String PROMPT = "KVStore> ";
 	private static final int HEARTBEAT_INTERVAL = 1000;
 	private static final int HEARTBEAT_TRANSMISSION = HEARTBEAT_INTERVAL * 10;
+	private static final int HEARTBEAT_RETRIES = 3;
 	private static final int BUFFER_SIZE = 1024;
 	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
 	private static final char LINE_FEED = 0x0A;
@@ -37,6 +38,7 @@ public class KVStore implements KVCommInterface {
  	private InputStream input;
 	private long lastResponse;
 	ScheduledFuture<?> heartbeatThread;
+	private int missedHeartbeats = 0;
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -108,31 +110,51 @@ public class KVStore implements KVCommInterface {
 
 	private void scheduleHeartbeat() {
 		ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+		
 		heartbeatThread = scheduler.scheduleAtFixedRate(new Runnable() {
 			@Override
 			public void run() {
-				if (getLastResponse() + HEARTBEAT_TRANSMISSION < System.currentTimeMillis()) {
+				if (getLastResponse() + HEARTBEAT_TRANSMISSION * (1 + missedHeartbeats) < System.currentTimeMillis()) {
 					byte msgBytes[] = { StatusType.HEARTBEAT.getVal() };
 					KVMessage msg = new KVMessage(msgBytes);
 					
 					try {
 						sendMessage(msg, true);
 						KVMessage res = receiveMessage(true);
+						setMissedHeartbeats(0);
 					} catch (Exception e) {
-						disconnect("Server shutdown!");
+						setMissedHeartbeats(missedHeartbeats + 1);
+						if (missedHeartbeats > HEARTBEAT_RETRIES) {
+							disconnect("Server unresponsive... Shutting down!");
+						} else {
+							if (missedHeartbeats == 1) {
+								System.out.println();
+								System.out.println(PROMPT + "Server not responding");
+								logger.warn("Server not responding. Sending heartbeats ...");
+							}
+							logger.warn("Heartbeat " + missedHeartbeats + " of " + HEARTBEAT_RETRIES);
+							System.out.println("Trial " + missedHeartbeats + " of " + HEARTBEAT_RETRIES);
+						}
 					}
 				}
 			}
 		}, 0, HEARTBEAT_INTERVAL, TimeUnit.MILLISECONDS);
 	}
 
+	public int getMissedHeartbeats() {
+		return missedHeartbeats;
+	}
+
+	public void setMissedHeartbeats(int missedHeartbeats) {
+		this.missedHeartbeats = missedHeartbeats;
+	}
+
 	public void disconnect(String msg) {
 		try {
 			heartbeatThread.cancel(false);
-			System.out.println();
 			System.out.println(PROMPT + msg);
 			System.out.print("KVClient> ");
-			logger.info(msg);
+			logger.warn(msg);
 			setRunning(false);
 			if (clientSocket != null) {
 				input.close();

@@ -268,7 +268,7 @@ public class KVServer implements IKVServer {
 
 	// TODO: Difference between kill and close?
 	@Override
-    public void kill(){
+    public void kill() {
 		close();
 	}
 
