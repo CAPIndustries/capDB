@@ -40,7 +40,7 @@ public class KVServer implements IKVServer {
 	private ServerSocket serverSocket;
 	private boolean running;
 	private File storageDirectory = new File(STORAGE_DIRECTORY);
-	
+
 	private LinkedHashMap<String, String> cache;
 	// true = write in progress (locked) and false = data is accessible
 	ConcurrentMap<String, Queue<Integer[]>> fileList = new ConcurrentHashMap<String, Queue<Integer[]>>();
@@ -61,14 +61,15 @@ public class KVServer implements IKVServer {
 	 *                  and "LFU".
 	 */
 	public KVServer(int port, final int cacheSize, CacheStrategy strategy) {
-		logger.info("Creating server. Config: port=" + port + " Cache Size=" + cacheSize + " Caching strategy=" + strategy);
-		
+		logger.info(
+				"Creating server. Config: port=" + port + " Cache Size=" + cacheSize + " Caching strategy=" + strategy);
+
 		this.port = port;
 		this.cacheSize = cacheSize;
 		this.strategy = strategy;
 
 		if (strategy == CacheStrategy.LRU) {
-			cache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true){
+			cache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true) {
 				protected boolean removeEldestEntry(Map.Entry eldest) {
 					return size() > cacheSize;
 				}
@@ -86,22 +87,22 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-    public String getHostname() {
+	public String getHostname() {
 		return serverSocket.getInetAddress().getHostName();
 	}
 
 	@Override
-    public CacheStrategy getCacheStrategy() {
+	public CacheStrategy getCacheStrategy() {
 		return this.strategy;
 	}
 
 	@Override
-    public int getCacheSize() {
+	public int getCacheSize() {
 		return this.cacheSize;
 	}
 
 	@Override
-    public boolean inCache(String key) {
+	public boolean inCache(String key) {
 		if (cache != null) {
 			return cache.containsKey(key);
 		}
@@ -109,7 +110,7 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-    public void clearCache() {
+	public void clearCache() {
 		if (cache != null) {
 			cache.clear();
 		}
@@ -122,7 +123,7 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-    public void clearStorage() {
+	public void clearStorage() {
 		logger.info("Clearing storage");
 		fileList.clear();
 		clearCache();
@@ -137,7 +138,7 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-    public String getKV(String key) throws Exception {
+	public String getKV(String key) throws Exception {
 		logger.info("GET for key=" + key);
 		// Check if key exists
 		if (!inStorage(key)) {
@@ -151,15 +152,13 @@ public class KVServer implements IKVServer {
 
 			// fileList.put(key, true);
 			// TODO - swap ints with ENUM - write - 1 and read -0
-			System.out.println("looks chill");
 			Integer[] node = { (int) Thread.currentThread().getId(), 0 };
 			fileList.get(key).add(node);
-			System.out.println("looks okay");
 
 			while (fileList.get(key).peek() != null && fileList.get(key).peek()[1] != 1) {
 				try {
 					readMap.get(key).acquire();
-					System.out.println("file list1: " + fileList.get(key).peek());
+					logger.debug("file list1: " + fileList.get(key).peek());
 					fileList.get(key).remove();
 					if (fileList.get(key).peek() == null)
 						break;
@@ -168,17 +167,19 @@ public class KVServer implements IKVServer {
 					e.printStackTrace();
 				}
 			}
-			System.out.println("over here");
-			System.out.println("cnt:" + readMap.get(key).availablePermits());
+
+			logger.debug("cnt:" + readMap.get(key).availablePermits());
 			File file = new File(STORAGE_DIRECTORY + key);
 			StringBuilder fileContents = new StringBuilder((int) file.length());
 			String value;
-			
-			try (Scanner scanner = new Scanner(file)) {
+			logger.debug("opened file: " + file);
+			try {
+
+				Scanner scanner = new Scanner(file);
 				while (scanner.hasNextLine()) {
 					fileContents.append(scanner.nextLine() + System.lineSeparator());
 				}
-				logger.info("Found key");
+				logger.debug("Found key");
 				// fileList.put(key, false);
 				if (fileList.get(key).peek() != null)
 					fileList.get(key).remove();
@@ -189,17 +190,19 @@ public class KVServer implements IKVServer {
 					fileList.get(key).remove();
 				readMap.get(key).release();
 				e.printStackTrace();
+				logger.error("error in try catch");
 			}
 		}
 		return "Error";
 	}
 
 	@Override
-    public void putKV(String key, String value) throws Exception {
+	public void putKV(String key, String value) throws Exception {
 		logger.info("PUT for key=" + key + " value=" + value);
 		try {
 			fileList.putIfAbsent(key, new ConcurrentLinkedQueue<Integer[]>());
 			readMap.putIfAbsent(key, new Semaphore(MAX_READS));
+			cache.putIfAbsent(key, value);
 
 			// add thread to back of list for this key - add is thread safe
 			Integer[] node = { (int) Thread.currentThread().getId(), 1 };
@@ -212,14 +215,13 @@ public class KVServer implements IKVServer {
 					&& readMap.get(key).availablePermits() != MAX_READS);
 
 			if (value.equals("null")) {
-				logger.info("Deleting record");
 				cache.remove(key);
 				// Delete the key
 				// TODO: Get a lock on the fileList since I'm updating/writing to it
-
 				fileList.remove(key);
 				File file = new File(STORAGE_DIRECTORY + key);
 				file.delete();
+
 				// TODO: Do you have to return an error if the key DNE?
 			} else {
 				logger.info("Inserting/updating record");
@@ -244,36 +246,36 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-    public void run() {
+	public void run() {
 		setRunning(initializeServer());
-        
-        if (serverSocket != null) {
-	        while (isRunning()) {
-	            try {
-	                Socket client = serverSocket.accept();                
-	                ClientConnection connection = new ClientConnection(client, this);
-	                new Thread(connection).start();
-	                
-	                logger.info("Connected to " 
-	                		+ client.getInetAddress().getHostAddress() 
-	                		+  ":" + client.getPort());
-	            } catch (IOException e) {
-	            	logger.error("Error! " +
-	            			"Unable to establish connection. \n", e);
-	            }
-	        }
-        }
-        logger.info("Server stopped.");
+
+		if (serverSocket != null) {
+			while (isRunning()) {
+				try {
+					Socket client = serverSocket.accept();
+					ClientConnection connection = new ClientConnection(client, this);
+					new Thread(connection).start();
+
+					logger.info("Connected to "
+							+ client.getInetAddress().getHostAddress()
+							+ ":" + client.getPort());
+				} catch (IOException e) {
+					logger.error("Error! " +
+							"Unable to establish connection. \n", e);
+				}
+			}
+		}
+		logger.info("Server stopped.");
 	}
 
 	// TODO: Difference between kill and close?
 	@Override
-    public void kill() {
+	public void kill() {
 		close();
 	}
 
 	@Override
-    public void close() {
+	public void close() {
 		logger.info("Closing server ...");
 		setRunning(false);
 		try {
@@ -286,10 +288,10 @@ public class KVServer implements IKVServer {
 	}
 
 	/**
-     * @param args contains the program's input args (here for signature purposes)
-     */
-    public static void main(String[] args) {
-    	try {
+	 * @param args contains the program's input args (here for signature purposes)
+	 */
+	public static void main(String[] args) {
+		try {
 			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
 			new LogSetup("logs/server_" + fmt.format(new Date()) + ".log", Level.ALL, true);
 			if (args.length != 1) {
@@ -298,7 +300,7 @@ public class KVServer implements IKVServer {
 				System.exit(1);
 			} else {
 				int port = Integer.parseInt(args[0]);
-				// No need to use the run method here since the contructor is supposed to 
+				// No need to use the run method here since the contructor is supposed to
 				// start the server on its own
 				// TODO: Allow passing additional arguments from the command line:
 				new KVServer(port, START_CACHE_SIZE, START_CACHE_STRATEGY);
@@ -315,22 +317,22 @@ public class KVServer implements IKVServer {
 	}
 
 	private boolean initializeServer() {
-    	logger.info("Initializing server ...");
+		logger.info("Initializing server ...");
 		initializeStorage();
 
-    	try {
-            serverSocket = new ServerSocket(port);
-            logger.info("Server listening on port: " 
-            		+ serverSocket.getLocalPort());    
-            return true;
-        } catch (IOException e) {
-        	logger.error("Error! Cannot open server socket:");
-            if (e instanceof BindException) {
-            	logger.error("Port " + port + " is already bound!");
-            }
-            return false;
-        }
-    }
+		try {
+			serverSocket = new ServerSocket(port);
+			logger.info("Server listening on port: "
+					+ serverSocket.getLocalPort());
+			return true;
+		} catch (IOException e) {
+			logger.error("Error! Cannot open server socket:");
+			if (e instanceof BindException) {
+				logger.error("Port " + port + " is already bound!");
+			}
+			return false;
+		}
+	}
 
 	private void initializeStorage() {
 		logger.info("Initializing storage ...");
@@ -338,19 +340,19 @@ public class KVServer implements IKVServer {
 		try {
 			logger.info("Checking for storage directory at " + storageDirectory.getCanonicalPath());
 			// Ensure storage directory exists
-			if (!storageDirectory.exists()){
+			if (!storageDirectory.exists()) {
 				logger.info("Storage directory does not exist. Creating new directory.");
 				storageDirectory.mkdir();
 			} else {
 				logger.info("Storage directory exists. Loading data ...");
 				// Load all the data
 				File[] listOfFiles = storageDirectory.listFiles();
-				
+
 				for (int i = 0; i < listOfFiles.length; i++) {
 					if (listOfFiles[i].isFile()) {
 						readMap.put(listOfFiles[i].getName(), new Semaphore(MAX_READS));
 						fileList.put(listOfFiles[i].getName(), new ConcurrentLinkedQueue<Integer[]>());
-					} 
+					}
 				}
 				logger.info("Data successfully loaded");
 			}
