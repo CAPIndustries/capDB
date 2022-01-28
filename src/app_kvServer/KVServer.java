@@ -119,7 +119,6 @@ public class KVServer implements IKVServer {
 
 	@Override
 	public boolean inStorage(String key) {
-		// TODO: See if someone is writing to fileList first
 		return fileList.containsKey(key);
 	}
 
@@ -127,6 +126,7 @@ public class KVServer implements IKVServer {
     public void clearStorage() {
 		logger.info("Clearing storage ...");
 		fileList.clear();
+		readMap.clear();
 		clearCache();
 		File[] allContents = storageDirectory.listFiles();
 		logger.info("Deleting " + allContents.length + " records");
@@ -169,9 +169,6 @@ public class KVServer implements IKVServer {
 
 			// See if marked for deletion:
 			if (fileList.get(key).isDeleted()) {
-				// TODO: Make the following method concurrent. Perhaps add it to the queue as a PRUNE op
-				// This is because a READ op is NOT supposed to modify global state, but pruning DOES!
-				pruneDelete(key);
 				removeTopQueue(key);
 				readMap.get(key).release();
 				logger.info("KEY does not exist");
@@ -213,7 +210,7 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-    public void putKV(String key, String value) throws Exception {
+    public void putKV(final String key, String value) throws Exception {
 		logger.info("PUT for key=" + key + " value=" + value);
 
 		try {
@@ -242,18 +239,40 @@ public class KVServer implements IKVServer {
 				//			Otherwise, return the key
 				// If at any point the queue is empty, and the row is marked as deleted, THEN remove it from the fileList
 				// Delete it from the cache as well!
-				fileList.get(key).setDeleted(true);
-				pruneDelete(key);
-				// NOT YET:
-				// fileList.remove(key);
-				File file = new File(STORAGE_DIRECTORY + key);
-				file.delete();
+				// remove the top item from the list for this key
+				removeTopQueue(key);
+				if (!fileList.get(key).isDeleted()) {
+					fileList.get(key).setDeleted(true);
+					Runnable pruneDelete = new Runnable()
+					{
+						@Override
+						public void run()
+						{
+							do {
+								System.out.println("Prune waiting");
+							} while (!fileList.get(key).isEmpty());
+							
+							fileList.remove(key);
+							readMap.remove(key);
+							cache.remove(key);
+					
+							File file = new File(STORAGE_DIRECTORY + key);
+							file.delete();
+						}
+					};
+					fileList.get(key).startPruning(pruneDelete);
+				}
+				
 				// TODO: Do you have to return an error if the key DNE?
 			} else {
 				// Insert/replace the key
 				logger.info("Inserting/updating record");
-				// Reset the deleted flag
-				fileList.get(key).setDeleted(false);
+				if (fileList.get(key).isDeleted()) {
+					// Stop the deletion
+					fileList.get(key).stopPruning();
+					fileList.get(key).setDeleted(false);
+				}
+				// TODO: Cancel the spinning pruning delete thread
 				cache.put(key, value);
 				try {
 					FileWriter myWriter = new FileWriter("storage/" + key);
@@ -262,10 +281,9 @@ public class KVServer implements IKVServer {
 				} catch (IOException e) {
 					logger.error(e);
 				}
+				// remove the top item from the list for this key
+				removeTopQueue(key);
 			}
-
-			// remove the top item from the list for this key
-			removeTopQueue(key);
 		} catch (Exception e) {
 			logger.error(e);
 		}
@@ -345,13 +363,6 @@ public class KVServer implements IKVServer {
 	private void removeTopQueue(String key) {
 		if (fileList.get(key).peek() != null) {
 			fileList.get(key).remove();
-		}
-	}
-
-	private void pruneDelete(String key) {
-		if (fileList.get(key).isEmpty()) {
-			fileList.remove(key);
-			cache.remove(key);
 		}
 	}
 

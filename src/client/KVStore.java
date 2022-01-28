@@ -21,6 +21,7 @@ import shared.messages.IKVMessage.StatusType;
 public class KVStore implements KVCommInterface {
 
 	private static final String PROMPT = "KVStore> ";
+	private static final int RESPONSE_TIME = 10 * 1000;
 	private static final int HEARTBEAT_INTERVAL = 1000;
 	private static final int HEARTBEAT_TRANSMISSION = HEARTBEAT_INTERVAL * 10;
 	private static final int HEARTBEAT_RETRIES = 3;
@@ -91,9 +92,19 @@ public class KVStore implements KVCommInterface {
 	@Override
 	public IKVMessage put(String key, String value) throws Exception {
 		KVMessage msg = new KVMessage(key, value, StatusType.PUT);
+		long sentTime = System.currentTimeMillis();
+		long expectedTime = sentTime + RESPONSE_TIME;
 		sendMessage(msg, false);
+
+		KVMessage res;
 		
-		KVMessage res = receiveMessage(false);
+		do {
+			res = receiveMessage(false);
+		} while (res.getStatus() != StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
+
+		if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
+			res = new KVMessage(key, "Timed out after " + RESPONSE_TIME / 1000 + " seconds", StatusType.PUT_ERROR);
+		}
 		
 		return res;
 	}
@@ -101,9 +112,19 @@ public class KVStore implements KVCommInterface {
 	@Override
 	public IKVMessage get(String key) throws Exception {
 		KVMessage msg = new KVMessage(key, null, StatusType.GET);
+		long sentTime = System.currentTimeMillis();
+		long expectedTime = sentTime + RESPONSE_TIME;
 		sendMessage(msg, false);
 		
-		KVMessage res = receiveMessage(false);
+		KVMessage res;
+
+		do {
+			res = receiveMessage(false);
+		} while (res.getStatus() != StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
+
+		if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
+			res = new KVMessage(key, "Timed out after " + RESPONSE_TIME / 1000 + " seconds", StatusType.GET_ERROR);
+		}
 
 		return res;
 	}
