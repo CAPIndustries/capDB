@@ -8,6 +8,22 @@ public interface IKVServer {
         FIFO
     };
 
+    public enum NodeOperation {
+        READ    (0),
+        WRITE   (1),
+        DELETE  (2);
+    
+        private final int val;
+    
+        NodeOperation(int val) {
+            this.val = val;
+        }
+    
+        public int getVal() {
+            return this.val;
+        }
+    };
+
     /**
      * Get the port number of the server
      * @return  port number
