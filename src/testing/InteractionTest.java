@@ -7,6 +7,9 @@ import client.KVStore;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 import logger.LogSetup;
+
+import java.util.ArrayList;
+
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
@@ -131,6 +134,62 @@ public class InteractionTest extends TestCase {
 		}
 
 		assertTrue(ex == null && response.getStatus() == StatusType.GET_ERROR);
+	}
+
+	@Test
+	public void testConcurrentGet() {
+		String key = "key";
+		String value = "woah";
+		IKVMessage response = null;
+		Exception ex = null;
+		try {
+			response = kvClient.put(key, value);
+		} catch (Exception e) {
+			ex = e;
+		}
+
+		assert (response.getStatus() == StatusType.PUT_SUCCESS);
+		assert (response.getKey() == key);
+		assert (response.getValue() == value);
+
+		// ArrayList<String> res_val = new ArrayList<String>();
+		logger.info("====Thread!======");
+		Runnable get = new Runnable() {
+			@Override
+			public void run() {
+				try {
+					KVStore kv = new KVStore("localhost", 50000);
+					Logger logger = Logger.getRootLogger();
+					kv.connect();
+					logger.info("====Thread! START ====");
+					logger.info(kv);
+					String key = "key";
+					IKVMessage response = kv.get(key);
+					logger.info("====Thread! DONE ====");
+					logger.info("====Thread! -> res: ====" + response.getValue());
+				} catch (Exception e) {
+					Exception ex = e;
+					e.printStackTrace();
+					logger.error("Error in THREADS:" + ex);
+				}
+			}
+		};
+
+		Thread[] tarr = new Thread[10];
+		for (int i = 0; i < 10; ++i) {
+			tarr[i] = new Thread(get);
+			tarr[i].start();
+		}
+
+		for (int i = 0; i < 10; ++i) {
+			try {
+				tarr[i].join();
+			} catch (Exception e) {
+				logger.error(e);
+			}
+		}
+
+		assertTrue(ex != null);
 	}
 
 }

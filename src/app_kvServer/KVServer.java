@@ -43,7 +43,7 @@ public class KVServer implements IKVServer {
 	private File storageDirectory = new File(STORAGE_DIRECTORY);
 
 	// TODO: I think the cache does indeed need to have concurrent access
-	private LinkedHashMap<String, String> cache = new LinkedHashMap<String, String>();
+	private LinkedHashMap<String, String> cache;
 	// true = write in progress (locked) and false = data is accessible
 	ConcurrentMap<String, ConcurrentNode> fileList = new ConcurrentHashMap<String, ConcurrentNode>();
 
@@ -199,7 +199,8 @@ public class KVServer implements IKVServer {
 
 				String val = fileContents.toString().trim();
 				logger.info("Gonna put key in cache!");
-				cache.put(key, val);
+				if (cache != null)
+					cache.put(key, val);
 				logger.info("Value=" + val);
 				return val;
 			} catch (Error e) {
@@ -221,7 +222,6 @@ public class KVServer implements IKVServer {
 		try {
 			fileList.putIfAbsent(key, new ConcurrentNode());
 			readMap.putIfAbsent(key, new Semaphore(MAX_READS));
-			cache.putIfAbsent(key, value);
 
 			NodeOperation op = value.equals("null") ? NodeOperation.DELETE : NodeOperation.WRITE;
 
@@ -261,7 +261,8 @@ public class KVServer implements IKVServer {
 
 							fileList.remove(key);
 							readMap.remove(key);
-							cache.remove(key);
+							if (cache != null)
+								cache.remove(key);
 
 							File file = new File(STORAGE_DIRECTORY + key);
 							file.delete();
@@ -280,7 +281,8 @@ public class KVServer implements IKVServer {
 					fileList.get(key).setDeleted(false);
 				}
 				// TODO: Cancel the spinning pruning delete thread
-				cache.put(key, value);
+				if (cache != null)
+					cache.put(key, value);
 				try {
 					FileWriter myWriter = new FileWriter("storage/" + key);
 					myWriter.write(value);

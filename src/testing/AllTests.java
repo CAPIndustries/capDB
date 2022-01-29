@@ -4,6 +4,7 @@ import java.io.IOException;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import java.io.File;
 
 import logger.LogSetup;
 
@@ -17,6 +18,8 @@ public class AllTests {
 	private static KVServer kvserver;
 	static {
 		try {
+			File file = new File("logs/testing/test.log");
+			file.delete();
 			new LogSetup("logs/testing/test.log", Level.ALL);
 			kvserver = new KVServer(50000, 10, CacheStrategy.FIFO);
 			Runnable server = new Runnable() {
