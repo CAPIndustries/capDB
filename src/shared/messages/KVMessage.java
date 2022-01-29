@@ -80,6 +80,16 @@ public class KVMessage implements Serializable, IKVMessage {
 		return this.status;
 	}
 
+	@Override
+	public String print() {
+		StringBuilder res = new StringBuilder();
+		res.append("Status=" + status);
+		if (key.length() > 0) res.append(",Key=" + key);
+		if (value.length() > 0) res.append(",Value=" + value);
+
+		return res.length() > 0 ? res.toString() : "<NULL>";
+	}
+
 	/**
 	 * Returns an array of bytes that represent the ASCII coded message content.
 	 * 

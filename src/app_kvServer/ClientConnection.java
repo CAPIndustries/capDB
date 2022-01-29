@@ -243,20 +243,20 @@ public class ClientConnection implements Runnable {
 		logger.debug("Last read:" + read);
 
 		if (msgBytes == null) {
-			System.out.println("null message");
+			logger.debug("null message");
 			tmp = new byte[index];
 			System.arraycopy(bufferBytes, 0, tmp, 0, index);
-			System.out.println("done null message");
+			logger.debug("done null message");
 		} else {
-			System.out.println("not null message");
+			logger.debug("not null message");
 			tmp = new byte[msgBytes.length + index];
 			System.arraycopy(msgBytes, 0, tmp, 0, msgBytes.length);
 			System.arraycopy(bufferBytes, 0, tmp, msgBytes.length, index);
-			System.out.println("done not null message");
+			logger.debug("done not null message");
 		}
 
 		msgBytes = tmp;
-		System.out.println("make into text message");
+		logger.debug("make into kv message");
 		/* build final result */
 		KVMessage msg = new KVMessage(msgBytes);
 

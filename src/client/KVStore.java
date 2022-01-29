@@ -22,7 +22,6 @@ public class KVStore implements KVCommInterface {
 
 	private static final String PROMPT = "KVStore> ";
 	private static final int RESPONSE_TIME = 90 * 1000;
-	public static boolean test = false;
 	// private static final int RESPONSE_TIME = 10 * 1000;
 	private static final int HEARTBEAT_INTERVAL = 1000;
 	private static final int HEARTBEAT_TRANSMISSION = HEARTBEAT_INTERVAL * 10;
@@ -31,7 +30,8 @@ public class KVStore implements KVCommInterface {
 	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
 	private static final char LINE_FEED = 0x0A;
 	private static final char RETURN = 0x0D;
-
+	
+	public static boolean test = false;
 	private static Logger logger = Logger.getRootLogger();
 	private boolean running;
 	private String address;
@@ -66,7 +66,10 @@ public class KVStore implements KVCommInterface {
 		setRunning(true);
 		setLastResponse(System.currentTimeMillis());
 
-		// scheduleHeartbeat();
+		// TODO: Try and figure out what the problem is:
+		if (!test) {
+			scheduleHeartbeat();
+		}
 
 		System.out.println(PROMPT + "Connected!");
 		logger.info("Connection established to " + address + " on port " + port);
@@ -99,6 +102,9 @@ public class KVStore implements KVCommInterface {
 		long expectedTime = sentTime + RESPONSE_TIME;
 		sendMessage(msg, false);
 
+		// TODO: Figure out the problem with this:
+		if (test) Thread.sleep(2000);
+
 		KVMessage res;
 
 		do {
@@ -121,7 +127,9 @@ public class KVStore implements KVCommInterface {
 		long sentTime = System.currentTimeMillis();
 		long expectedTime = sentTime + RESPONSE_TIME;
 		sendMessage(msg, false);
-		Thread.sleep(2000);
+		
+		// TODO: Figure out the problem with this:
+		if (test) Thread.sleep(2000);
 
 		KVMessage res;
 
@@ -218,6 +226,8 @@ public class KVStore implements KVCommInterface {
 	}
 
 	private synchronized KVMessage receiveMessage(boolean heartbeat) throws IOException, Exception {
+		if (!isRunning()) throw new IOException("Store is not running!");
+
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
 		byte[] bufferBytes = new byte[BUFFER_SIZE];
@@ -292,6 +302,8 @@ public class KVStore implements KVCommInterface {
 	}
 
 	public synchronized void sendMessage(KVMessage msg, boolean heartbeat) throws IOException {
+		if (!isRunning()) throw new IOException("Store is not running!");
+
 		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);
 		output.flush();
