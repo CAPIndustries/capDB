@@ -133,4 +133,59 @@ public class InteractionTest extends TestCase {
 		assertTrue(ex == null && response.getStatus() == StatusType.GET_ERROR);
 	}
 
+	@Test
+	public void testLatency(){ 
+		long Get20Put80[100]; 
+		long Get80Put20[100]; 
+		long Get50Put50[100]; 
+		
+		String key = "foo";
+		String value = "bar";
+		
+		// place holder to be over written by many start times
+		long startTime; 
+		
+		// initialize the test value in storage 
+		kvClient.put(key, value);	
+	
+		// Get20Put80
+		for (int i = 0; i < 100; i++){
+			if (i % 5 == 0){
+				startTime = System.nanoTime(); 
+				kvClient.get(key);
+			}
+			else{ 
+				startTime = System.nanoTime(); 
+				kvClient.put(key, value);
+			}
+			Get20Put80[i] = System.nanoTime() - startTime;
+		}
+
+		// Get80Put20
+		for (int i = 0; i < 100; i++){
+			if (i % 5 == 0){
+				startTime = System.nanoTime(); 
+				kvClient.put(key, value);
+		
+			}
+			else{ 
+				startTime = System.nanoTime(); 
+				kvClient.get(key);
+			}
+			Get80Put20[i] = System.nanoTime() - startTime;
+		}	
+
+		// Get50Put50
+		for (int i = 0; i < 100; i++){
+			if (i % 2 == 0){
+				startTime = System.nanoTime(); 
+				kvClient.get(key);
+			}
+			else{ 
+				startTime = System.nanoTime(); 
+				kvClient.put(key, value);
+			}
+			Get50Put50[i] = System.nanoTime() - startTime;
+		}	
+	}
 }
