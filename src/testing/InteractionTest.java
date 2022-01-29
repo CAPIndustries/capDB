@@ -4,19 +4,24 @@ import org.junit.Test;
 
 import junit.framework.TestCase;
 import client.KVStore;
+import app_kvServer.KVServer;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 import logger.LogSetup;
+import java.util.concurrent.*;
+import java.util.Queue;
 
 import java.util.ArrayList;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
+import app_kvServer.ConcurrentNode;
 
 public class InteractionTest extends TestCase {
 
 	private KVStore kvClient;
 	private static Logger logger = Logger.getRootLogger();
+	public static KVServer server;
 
 	public void setUp() {
 		kvClient = new KVStore("localhost", 50000);
@@ -30,111 +35,111 @@ public class InteractionTest extends TestCase {
 		kvClient.disconnect();
 	}
 
-	@Test
-	public void testPut() {
-		String key = "foo2";
-		String value = "bar2";
-		IKVMessage response = null;
-		Exception ex = null;
-		logger.debug("======= starting put =======");
-		try {
-			response = kvClient.put(key, value);
-		} catch (Exception e) {
-			ex = e;
-		}
-		logger.debug("======= starting put =======");
-		logger.debug("put status: " + response.getStatus());
-		assertTrue(ex == null && response.getStatus() == StatusType.PUT_SUCCESS);
-	}
+	// @Test
+	// public void testPut() {
+	// String key = "foo2";
+	// String value = "bar2";
+	// IKVMessage response = null;
+	// Exception ex = null;
+	// logger.debug("======= starting put =======");
+	// try {
+	// response = kvClient.put(key, value);
+	// } catch (Exception e) {
+	// ex = e;
+	// }
+	// logger.debug("======= starting put =======");
+	// logger.debug("put status: " + response.getStatus());
+	// assertTrue(ex == null && response.getStatus() == StatusType.PUT_SUCCESS);
+	// }
 
-	@Test
-	public void testPutDisconnected() {
-		kvClient.disconnect();
-		String key = "foo";
-		String value = "bar";
-		Exception ex = null;
+	// @Test
+	// public void testPutDisconnected() {
+	// kvClient.disconnect();
+	// String key = "foo";
+	// String value = "bar";
+	// Exception ex = null;
 
-		try {
-			kvClient.put(key, value);
-		} catch (Exception e) {
-			ex = e;
-		}
+	// try {
+	// kvClient.put(key, value);
+	// } catch (Exception e) {
+	// ex = e;
+	// }
 
-		assertNotNull(ex);
-	}
+	// assertNotNull(ex);
+	// }
 
-	@Test
-	public void testUpdate() {
-		String key = "updateTestValue";
-		String initialValue = "initial";
-		String updatedValue = "updated";
+	// @Test
+	// public void testUpdate() {
+	// String key = "updateTestValue";
+	// String initialValue = "initial";
+	// String updatedValue = "updated";
 
-		IKVMessage response = null;
-		Exception ex = null;
+	// IKVMessage response = null;
+	// Exception ex = null;
 
-		try {
-			kvClient.put(key, initialValue);
-			response = kvClient.put(key, updatedValue);
+	// try {
+	// kvClient.put(key, initialValue);
+	// response = kvClient.put(key, updatedValue);
 
-		} catch (Exception e) {
-			ex = e;
-		}
+	// } catch (Exception e) {
+	// ex = e;
+	// }
 
-		assertTrue(ex == null && response.getStatus() == StatusType.PUT_UPDATE
-				&& response.getValue().equals(updatedValue));
-	}
+	// assertTrue(ex == null && response.getStatus() == StatusType.PUT_UPDATE
+	// && response.getValue().equals(updatedValue));
+	// }
 
-	@Test
-	public void testDelete() {
-		String key = "deleteTestValue";
-		String value = "toDelete";
+	// @Test
+	// public void testDelete() {
+	// String key = "deleteTestValue";
+	// String value = "toDelete";
 
-		IKVMessage response = null;
-		Exception ex = null;
+	// IKVMessage response = null;
+	// Exception ex = null;
 
-		try {
-			kvClient.put(key, value);
-			response = kvClient.put(key, "null");
+	// try {
+	// kvClient.put(key, value);
+	// response = kvClient.put(key, "null");
 
-		} catch (Exception e) {
-			ex = e;
-		}
+	// } catch (Exception e) {
+	// ex = e;
+	// }
 
-		assertTrue(ex == null && response.getStatus() == StatusType.DELETE_SUCCESS);
-	}
+	// assertTrue(ex == null && response.getStatus() == StatusType.DELETE_SUCCESS);
+	// }
 
-	@Test
-	public void testGet() {
-		String key = "foo";
-		String value = "bar";
-		IKVMessage response = null;
-		Exception ex = null;
+	// @Test
+	// public void testGet() {
+	// String key = "foo";
+	// String value = "bar";
+	// IKVMessage response = null;
+	// Exception ex = null;
 
-		try {
-			kvClient.put(key, value);
-			response = kvClient.get(key);
-		} catch (Exception e) {
+	// try {
+	// kvClient.put(key, value);
+	// response = kvClient.get(key);
+	// } catch (Exception e) {
 
-			ex = e;
-		}
+	// ex = e;
+	// }
 
-		assertTrue(ex == null && response.getValue().equals("bar"));
-	}
+	// assertTrue(ex == null && response.getValue().equals("bar"));
+	// }
 
-	@Test
-	public void testGetUnsetValue() {
-		String key = "an unset value";
-		IKVMessage response = null;
-		Exception ex = null;
+	// @Test
+	// public void testGetUnsetValue() {
+	// String key = "an unset value";
+	// IKVMessage response = null;
+	// Exception ex = null;
 
-		try {
-			response = kvClient.get(key);
-		} catch (Exception e) {
-			ex = e;
-		}
+	// try {
+	// response = kvClient.get(key);
+	// } catch (Exception e) {
+	// ex = e;
+	// }
 
-		assertTrue(ex == null && response.getStatus() == StatusType.GET_ERROR);
-	}
+	// assertTrue(ex == null && response.getStatus() == StatusType.GET_ERROR);
+	// }
 
 	@Test
 	public void testConcurrentGet() {
@@ -167,6 +172,7 @@ public class InteractionTest extends TestCase {
 					IKVMessage response = kv.get(key);
 					logger.info("====Thread! DONE ====");
 					logger.info("====Thread! -> res: ====" + response.getValue());
+					kv.disconnect();
 				} catch (Exception e) {
 					Exception ex = e;
 					e.printStackTrace();
@@ -175,11 +181,24 @@ public class InteractionTest extends TestCase {
 			}
 		};
 
-		Thread[] tarr = new Thread[10];
-		for (int i = 0; i < 10; ++i) {
+		Thread[] tarr = new Thread[5];
+		server.wait = true;
+		for (int i = 0; i < 5; ++i) {
 			tarr[i] = new Thread(get);
 			tarr[i].start();
 		}
+
+		while (server.getFileList().get(key).len() != 5) {
+			logger.debug(server.getFileList().get(key).len());
+		}
+		;
+
+		// logger.debug("!!!!===DONE===!!!!");
+		ConcurrentMap<String, ConcurrentNode> newList = server.getFileList();
+
+		// newList.get(key);
+		server.wait = false;
+		logger.debug("!!!!===DONE===!!!!");
 
 		for (int i = 0; i < 10; ++i) {
 			try {
@@ -191,5 +210,7 @@ public class InteractionTest extends TestCase {
 
 		assertTrue(ex != null);
 	}
+
+	// TODO check to make sure connection times out
 
 }

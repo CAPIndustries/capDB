@@ -21,7 +21,9 @@ import shared.messages.IKVMessage.StatusType;
 public class KVStore implements KVCommInterface {
 
 	private static final String PROMPT = "KVStore> ";
-	private static final int RESPONSE_TIME = 10 * 1000;
+	private static final int RESPONSE_TIME = 90 * 1000;
+	public static boolean test = false;
+	// private static final int RESPONSE_TIME = 10 * 1000;
 	private static final int HEARTBEAT_INTERVAL = 1000;
 	private static final int HEARTBEAT_TRANSMISSION = HEARTBEAT_INTERVAL * 10;
 	private static final int HEARTBEAT_RETRIES = 3;
@@ -58,13 +60,13 @@ public class KVStore implements KVCommInterface {
 		logger.info("Trying to connect ...");
 
 		clientSocket = new Socket(address, port);
-		clientSocket.setSoTimeout(HEARTBEAT_TRANSMISSION);
+		clientSocket.setSoTimeout(RESPONSE_TIME);
 		output = clientSocket.getOutputStream();
 		input = clientSocket.getInputStream();
 		setRunning(true);
 		setLastResponse(System.currentTimeMillis());
 
-		scheduleHeartbeat();
+		// scheduleHeartbeat();
 
 		System.out.println(PROMPT + "Connected!");
 		logger.info("Connection established to " + address + " on port " + port);
@@ -119,6 +121,7 @@ public class KVStore implements KVCommInterface {
 		long sentTime = System.currentTimeMillis();
 		long expectedTime = sentTime + RESPONSE_TIME;
 		sendMessage(msg, false);
+		Thread.sleep(2000);
 
 		KVMessage res;
 

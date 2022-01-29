@@ -22,6 +22,7 @@ public class AllTests {
 			file.delete();
 			new LogSetup("logs/testing/test.log", Level.ALL);
 			kvserver = new KVServer(50000, 10, CacheStrategy.FIFO);
+			kvserver.test = true;
 			Runnable server = new Runnable() {
 				@Override
 				public void run() {
@@ -42,6 +43,7 @@ public class AllTests {
 		Logger logger = Logger.getRootLogger();
 		logger.debug("Warn: starting clear storage");
 
+		InteractionTest.server = kvserver;
 		kvserver.clearStorage();
 		clientSuite.addTestSuite(ConnectionTest.class);
 		kvserver.clearStorage();

@@ -33,6 +33,8 @@ public class KVServer implements IKVServer {
 	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.LRU;
 	private static final int START_CACHE_SIZE = 16;
 	private static final int MAX_READS = 100;
+	public boolean test = false;
+	public boolean wait = false;
 
 	private static Logger logger = Logger.getRootLogger();
 	private int port;
@@ -49,6 +51,14 @@ public class KVServer implements IKVServer {
 
 	// semaphore map to allow multiple reads
 	ConcurrentMap<String, Semaphore> readMap = new ConcurrentHashMap<String, Semaphore>();
+
+	public ConcurrentMap<String, ConcurrentNode> getFileList() {
+		return this.fileList;
+	}
+
+	public void setFileList(ConcurrentMap<String, ConcurrentNode> newlist) {
+		this.fileList = newlist;
+	}
 
 	/**
 	 * Start KV Server at given port
@@ -154,6 +164,13 @@ public class KVServer implements IKVServer {
 			int[] node = { (int) Thread.currentThread().getId(), NodeOperation.READ.getVal() };
 			fileList.get(key).addToQueue(node);
 			logger.info("looks okay");
+
+			if (test) {
+				logger.debug("!!!!===wait===!!!!");
+				while (wait)
+					;
+			}
+			logger.debug("!!!!===DONE SERVER===!!!!");
 
 			while (fileList.get(key).peek() != null && fileList.get(key).peek()[1] == NodeOperation.READ.getVal()) {
 				try {

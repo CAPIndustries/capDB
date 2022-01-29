@@ -11,7 +11,7 @@ public class ConcurrentNode {
 	private Queue<int[]> q;
 	private boolean deleted;
 	ScheduledFuture<?> deleteThread;
-	
+
 	public ConcurrentNode() {
 		this.q = new ConcurrentLinkedQueue<int[]>();
 		this.deleted = false;
@@ -61,4 +61,13 @@ public class ConcurrentNode {
 			deleteThread.cancel(false);
 		}
 	}
+
+	public void setQ(Queue<int[]> q2) {
+		this.q = q2;
+	}
+
+	public Queue<int[]> getQ() {
+		return this.q;
+	}
+
 }
