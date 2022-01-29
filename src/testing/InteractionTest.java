@@ -2,8 +2,8 @@ package testing;
 
 import org.junit.Test;
 
-import client.KVStore;
 import junit.framework.TestCase;
+import client.KVStore;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 import logger.LogSetup;
@@ -33,13 +33,14 @@ public class InteractionTest extends TestCase {
 		String value = "bar2";
 		IKVMessage response = null;
 		Exception ex = null;
-
+		logger.debug("======= starting put =======");
 		try {
 			response = kvClient.put(key, value);
 		} catch (Exception e) {
 			ex = e;
 		}
-
+		logger.debug("======= starting put =======");
+		logger.debug("put status: " + response.getStatus());
 		assertTrue(ex == null && response.getStatus() == StatusType.PUT_SUCCESS);
 	}
 

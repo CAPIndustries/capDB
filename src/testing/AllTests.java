@@ -3,6 +3,9 @@ package testing;
 import java.io.IOException;
 
 import org.apache.log4j.Level;
+import org.apache.log4j.Logger;
+
+import logger.LogSetup;
 
 import app_kvServer.KVServer;
 import app_kvServer.IKVServer.CacheStrategy;
@@ -11,14 +14,15 @@ import junit.framework.TestSuite;
 import logger.LogSetup;
 
 public class AllTests {
-
+	private static KVServer kvserver;
 	static {
 		try {
 			new LogSetup("logs/testing/test.log", Level.ALL);
+			kvserver = new KVServer(50000, 10, CacheStrategy.FIFO);
 			Runnable server = new Runnable() {
 				@Override
 				public void run() {
-					new KVServer(50000, 10, CacheStrategy.None);
+					kvserver.run();
 				}
 			};
 			new Thread(server).start();
@@ -31,9 +35,18 @@ public class AllTests {
 
 	public static Test suite() {
 		TestSuite clientSuite = new TestSuite("Basic Storage ServerTest-Suite");
+
+		Logger logger = Logger.getRootLogger();
+		logger.debug("Warn: starting clear storage");
+
+		kvserver.clearStorage();
 		clientSuite.addTestSuite(ConnectionTest.class);
+		kvserver.clearStorage();
 		clientSuite.addTestSuite(InteractionTest.class);
+		kvserver.clearStorage();
 		clientSuite.addTestSuite(AdditionalTest.class);
+		kvserver.clearStorage();
+
 		return clientSuite;
 	}
 

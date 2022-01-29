@@ -43,7 +43,7 @@ public class KVServer implements IKVServer {
 	private File storageDirectory = new File(STORAGE_DIRECTORY);
 
 	// TODO: I think the cache does indeed need to have concurrent access
-	private LinkedHashMap<String, String> cache;
+	private LinkedHashMap<String, String> cache = new LinkedHashMap<String, String>();
 	// true = write in progress (locked) and false = data is accessible
 	ConcurrentMap<String, ConcurrentNode> fileList = new ConcurrentHashMap<String, ConcurrentNode>();
 
@@ -80,7 +80,7 @@ public class KVServer implements IKVServer {
 			logger.warn("Unimplemented caching strategy: " + strategy);
 		}
 
-		this.run();
+		// this.run();
 	}
 
 	@Override
@@ -148,15 +148,16 @@ public class KVServer implements IKVServer {
 			logger.info("KEY does not exist");
 			throw new Exception("Key does not exist");
 		} else {
-			// TODO: Key could exist here, but then gets deleted in another thread. HANDLE THIS
-			System.out.println("looks chill");
+			// TODO: Key could exist here, but then gets deleted in another thread. HANDLE
+			// THIS
+			logger.info("looks chill");
 			int[] node = { (int) Thread.currentThread().getId(), NodeOperation.READ.getVal() };
 			fileList.get(key).addToQueue(node);
-			System.out.println("looks okay");
+			logger.info("looks okay");
 
 			while (fileList.get(key).peek() != null && fileList.get(key).peek()[1] == NodeOperation.READ.getVal()) {
 				try {
-					System.out.println("file list1: " + fileList.get(key).peek());
+					logger.info("file list1: " + fileList.get(key).peek());
 					readMap.get(key).acquire();
 					break;
 				} catch (Exception e) {
@@ -165,8 +166,8 @@ public class KVServer implements IKVServer {
 				}
 			}
 
-			System.out.println("over here");
-			System.out.println("cnt:" + readMap.get(key).availablePermits());
+			logger.info("over here");
+			logger.info("cnt:" + readMap.get(key).availablePermits());
 
 			// See if marked for deletion:
 			if (fileList.get(key).isDeleted()) {
@@ -186,16 +187,18 @@ public class KVServer implements IKVServer {
 			File file = new File(STORAGE_DIRECTORY + key);
 			StringBuilder fileContents = new StringBuilder((int) file.length());
 			String value;
-
+			logger.info("Gonna open the file now!");
 			try (Scanner scanner = new Scanner(file)) {
+				logger.info("reading file!");
 				while (scanner.hasNextLine()) {
 					fileContents.append(scanner.nextLine() + System.lineSeparator());
 				}
-				
+				logger.info("done read!");
 				removeTopQueue(key);
 				readMap.get(key).release();
 
 				String val = fileContents.toString().trim();
+				logger.info("Gonna put key in cache!");
 				cache.put(key, val);
 				logger.info("Value=" + val);
 				return val;
@@ -203,6 +206,7 @@ public class KVServer implements IKVServer {
 				removeTopQueue(key);
 				readMap.get(key).release();
 				logger.error(e);
+				logger.debug("OH NOOO");
 			}
 		}
 
@@ -252,7 +256,7 @@ public class KVServer implements IKVServer {
 						@Override
 						public void run() {
 							do {
-								System.out.println("Prune waiting");
+								// System.out.println("Prune waiting");
 							} while (!fileList.get(key).isEmpty());
 
 							fileList.remove(key);
@@ -273,12 +277,9 @@ public class KVServer implements IKVServer {
 				if (fileList.get(key).isDeleted()) {
 					// Stop the deletion
 					fileList.get(key).stopPruning();
-				filei
-
-	st.get(key).
-	e
-			}
-			// TODO: Cancel the spinning pruning delete thread
+					fileList.get(key).setDeleted(false);
+				}
+				// TODO: Cancel the spinning pruning delete thread
 				cache.put(key, value);
 				try {
 					FileWriter myWriter = new FileWriter("storage/" + key);
@@ -353,7 +354,7 @@ public class KVServer implements IKVServer {
 				// No need to use the run method here since the contructor is supposed to
 				// start the server on its own
 				// TODO: Allow passing additional arguments from the command line:
-				new KVServer(port, START_CACHE_SIZE, START_CACHE_STRATEGY);
+				new KVServer(port, START_CACHE_SIZE, START_CACHE_STRATEGY).run();
 			}
 		} catch (IOException e) {
 			System.out.println("Error! Unable to initialize logger!");
