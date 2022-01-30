@@ -3,6 +3,8 @@ package shared.messages;
 import java.io.Serializable;
 import java.util.Objects;
 
+import exceptions.InvalidMessageException;
+
 /**
  * Represents a simple text message, which is intended to be received and sent 
  * by the server.
@@ -28,7 +30,7 @@ public class KVMessage implements Serializable, IKVMessage {
      * 
      * @param bytes the bytes that form the message in ASCII coding.
      */
-	public KVMessage(byte[] bytes) {
+	public KVMessage(byte[] bytes) throws InvalidMessageException {
 		this.msgBytes = addCtrChars(bytes);
 		// Deserialize the data
 		this.status = StatusType.parse(msgBytes[0]);
@@ -37,11 +39,15 @@ public class KVMessage implements Serializable, IKVMessage {
 			byte[] keyBytes = new byte[MAX_KEY];
 			System.arraycopy(msgBytes, MAX_STATUS, keyBytes, 0, MAX_KEY);
 			this.key = new String(keyBytes).trim();
-
+			
+			if (this.key.getBytes().length > MAX_VALUE) throw new InvalidMessageException("Invalid key length!");
+			
 			if (bytes.length > (MAX_STATUS + MAX_KEY)) {
 				byte[] valueBytes = new byte[MAX_VALUE];
 				System.arraycopy(msgBytes, MAX_STATUS + MAX_KEY, valueBytes, 0, msgBytes.length - (MAX_STATUS + MAX_KEY));
 				this.value = new String(valueBytes).trim();
+				
+				if (this.value.getBytes().length > MAX_VALUE) throw new InvalidMessageException("Invalid key length!");
 			} else {
 				this.value = null;
 			}
@@ -58,9 +64,15 @@ public class KVMessage implements Serializable, IKVMessage {
      * @param value the value
      * @param status the status
      */
-	public KVMessage(String key, String value, StatusType status) {
+	public KVMessage(String key, String value, StatusType status) throws InvalidMessageException {
 		this.key = key;
+		if (this.key != null && this.key.getBytes().length > MAX_KEY)
+			throw new InvalidMessageException("Invalid key length!");
+
 		this.value = value;
+		if (this.value != null && this.value.getBytes().length > MAX_VALUE) 
+			throw new InvalidMessageException("Invalid key length!");
+
 		this.status = status;
 		// Serialize the data
 		this.msgBytes = toByteArray(key, value, status);

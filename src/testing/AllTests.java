@@ -49,6 +49,14 @@ public class AllTests {
 		BasicTest.server = kvserver;
 		BasicTest.port = PORT;
 		clientSuite.addTestSuite(BasicTest.class);
+
+		RequestTest.server = kvserver;
+		RequestTest.port = PORT;
+		clientSuite.addTestSuite(RequestTest.class);
+
+		// HeartbeatTest.server = kvserver;
+		// HeartbeatTest.port = PORT;
+		// clientSuite.addTestSuite(HeartbeatTest.class);
 		
 		ConcurrencyBasicTest.server = kvserver;
 		ConcurrencyBasicTest.port = PORT;

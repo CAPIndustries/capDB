@@ -26,6 +26,8 @@ import shared.messages.IKVMessage.StatusType;
 
 import app_kvServer.ConcurrentNode;
 
+import exceptions.InvalidMessageException;
+
 public class KVServer implements IKVServer {
 
 	private static final String STORAGE_DIRECTORY = "storage/";
@@ -147,7 +149,7 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-	public KVMessage getKV(final int clientPort, final String key) {
+	public KVMessage getKV(final int clientPort, final String key) throws InvalidMessageException {
 		logger.info(clientPort+ "> GET for key=" + key);
 		KVMessage res;
 		StatusType getStat = StatusType.GET_SUCCESS;
@@ -258,7 +260,7 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-	public KVMessage putKV(final int clientPort, final String key, final String value) {
+	public KVMessage putKV(final int clientPort, final String key, final String value) throws InvalidMessageException {
 		logger.info(clientPort + "> PUT for key=" + key + " value=" + value);
 		KVMessage res;
 		StatusType putStat;
@@ -369,7 +371,12 @@ public class KVServer implements IKVServer {
 		// remove the top item from the list for this key
 		removeTopQueue(key);
 		logger.info(clientPort + "> !!!!===Removing from queue===!!!!");
-		res = new KVMessage(key, value, putStat);
+		try {
+			res = new KVMessage(key, value, putStat);
+		} catch (InvalidMessageException ime) {
+			throw ime;
+		}
+
 		return res;
 	}
 
