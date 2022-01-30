@@ -3,7 +3,7 @@ package testing;
 import java.io.IOException;
 
 import org.apache.log4j.Level;
-import org.apache.log4j.Logger;
+
 import java.io.File;
 
 import logger.LogSetup;
@@ -12,7 +12,6 @@ import app_kvServer.KVServer;
 import app_kvServer.IKVServer.CacheStrategy;
 import junit.framework.Test;
 import junit.framework.TestSuite;
-import logger.LogSetup;
 
 public class AllTests {
 	private static KVServer kvserver;
@@ -46,9 +45,9 @@ public class AllTests {
 		// ConnectionTest.port = PORT;
 		// clientSuite.addTestSuite(ConnectionTest.class);
 		
-		// BasicTest.server = kvserver;
-		// BasicTest.port = PORT;
-		// clientSuite.addTestSuite(BasicTest.class);
+		BasicTest.server = kvserver;
+		BasicTest.port = PORT;
+		clientSuite.addTestSuite(BasicTest.class);
 		
 		// ConcurrencyBasicTest.server = kvserver;
 		// ConcurrencyBasicTest.port = PORT;

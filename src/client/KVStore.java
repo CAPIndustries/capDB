@@ -31,7 +31,7 @@ public class KVStore implements KVCommInterface {
 	private static final char LINE_FEED = 0x0A;
 	private static final char RETURN = 0x0D;
 	
-	public static boolean test = false;
+	public volatile static boolean test = false;
 	private static Logger logger = Logger.getRootLogger();
 	private boolean running;
 	private String address;
@@ -42,6 +42,7 @@ public class KVStore implements KVCommInterface {
 	private long lastResponse;
 	ScheduledFuture<?> heartbeatThread;
 	private int missedHeartbeats = 0;
+	public int output_port;
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -63,6 +64,7 @@ public class KVStore implements KVCommInterface {
 		clientSocket.setSoTimeout(RESPONSE_TIME);
 		output = clientSocket.getOutputStream();
 		input = clientSocket.getInputStream();
+		output_port = clientSocket.getLocalPort();
 		setRunning(true);
 		setLastResponse(System.currentTimeMillis());
 
