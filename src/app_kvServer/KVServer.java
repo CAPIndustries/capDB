@@ -25,6 +25,7 @@ import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import logger.LogSetup;
+
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
 import app_kvServer.ConcurrentNode;
@@ -262,12 +263,10 @@ public class KVServer implements IKVServer {
 		logger.info("PUT for key=" + key + " value=" + value);
 		KVMessage res;
 
-		// TODO: Cleanup the readMap and clientRequests after the requests are completed\
+		// TODO: Cleanup the clientRequests after the requests are completed
 		clientRequests.putIfAbsent(key, new ConcurrentNode(MAX_READS));
-		// clientRequests.putIfAbsent(key, new ConcurrentNode(value));
-
+		
 		NodeOperation op = value.equals("null") ? NodeOperation.DELETE : NodeOperation.WRITE;
-
 		// add thread to back of list for this key - add is thread safe
 		int[] node = { clientPort, op.getVal() };
 		clientRequests.get(key).addToQueue(node);
@@ -315,11 +314,13 @@ public class KVServer implements IKVServer {
 							} while (!clientRequests.get(key).isEmpty());
 
 							clientRequests.remove(key);
-							if (cache != null)
+							if (cache != null){
 								cache.remove(key);
+							}
 
 							File file = new File(STORAGE_DIRECTORY + key);
 							file.delete();
+							logger.info(key + " successfully pruned");
 						}
 					};
 					clientRequests.get(key).startPruning(pruneDelete);
@@ -354,12 +355,12 @@ public class KVServer implements IKVServer {
 						clientRequests.get(key).stopPruning();
 						clientRequests.get(key).setDeleted(false);
 					}
-	
-					insertCache(key, value);
-					FileWriter myWriter = new FileWriter(STORAGE_DIRECTORY + key);
-					myWriter.write(value);
-					myWriter.close();
 				}
+
+				insertCache(key, value);
+				FileWriter myWriter = new FileWriter(STORAGE_DIRECTORY + key);
+				myWriter.write(value);
+				myWriter.close();
 			} catch (Exception e) {
 				logger.error(e);
 				putStat = StatusType.PUT_ERROR;

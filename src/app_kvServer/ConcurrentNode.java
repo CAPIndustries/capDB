@@ -65,10 +65,9 @@ public class ConcurrentNode {
 		deleteThread = scheduler.schedule(new Runnable() {
 			@Override
 			public void run() {
-				System.out.println("Starting pruning thread");
 				pruneDelete.run();
 			}
-		}, 5, TimeUnit.SECONDS);
+		}, 0, TimeUnit.SECONDS);
 	}
 
 	public void stopPruning() {

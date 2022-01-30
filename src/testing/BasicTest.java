@@ -1,19 +1,25 @@
 package testing;
 
+import java.io.File;
+
 import junit.framework.TestCase;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import client.KVStore;
+
 import app_kvServer.KVServer;
+
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
+
 import logger.LogSetup;
 
 public class BasicTest extends TestCase {
 
 	private KVStore kvClient;
+	private final String STORAGE_DIRECTORY = "storage/";
 	private static Logger logger = Logger.getRootLogger();
 	public static KVServer server;
 	public static int port;
@@ -47,9 +53,10 @@ public class BasicTest extends TestCase {
 		}
 
 		assertNull(ex);
-		assert(response.getStatus() == StatusType.PUT_SUCCESS);
-		assert(response.getKey().equals(key));
-		assert(response.getValue().equals(value));
+		assertTrue(new File(STORAGE_DIRECTORY + key).isFile());
+		assertTrue(response.getStatus() == StatusType.PUT_SUCCESS);
+		assertTrue(response.getKey().equals(key));
+		assertTrue(response.getValue().equals(value));
 	}
 
 	public void testUpdate() {
@@ -69,6 +76,7 @@ public class BasicTest extends TestCase {
 		}
 
 		assertNull(ex);
+		assertTrue(new File(STORAGE_DIRECTORY + key).isFile());
 		assertTrue(response.getStatus() == StatusType.PUT_UPDATE);
 		assertTrue(response.getKey().equals(key));
 		assertTrue(response.getValue().equals(updatedValue));
@@ -84,12 +92,16 @@ public class BasicTest extends TestCase {
 
 		try {
 			kvClient.put(key, value);
+			assertTrue(new File(STORAGE_DIRECTORY + key).isFile());
 			response = kvClient.put(key, "null");
+			// Wait for pruning to complete:
+			Thread.sleep(5);
 		} catch (Exception e) {
 			ex = e;
 		}
 
 		assertNull(ex);
+		assertFalse(new File(STORAGE_DIRECTORY + key).isFile());
 		assertTrue(response.getStatus() == StatusType.DELETE_SUCCESS);
 		assertTrue(response.getKey().equals(key));
 	}
