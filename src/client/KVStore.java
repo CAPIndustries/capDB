@@ -14,8 +14,8 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.log4j.Logger;
 
-import shared.messages.IKVMessage;
 import shared.messages.KVMessage;
+import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 
 public class KVStore implements KVCommInterface {

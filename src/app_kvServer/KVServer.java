@@ -10,14 +10,9 @@ import java.io.FileWriter;
 
 import java.util.Date;
 import java.util.Scanner;
-import java.util.HashMap;
 import java.util.Map;
 import java.util.LinkedHashMap;
-import java.util.LinkedList;
-import java.util.Queue;
-import java.util.concurrent.*;
-import java.util.function.IntBinaryOperator;
-import java.util.Iterator;
+import java.util.concurrent.ConcurrentHashMap;
 
 import java.text.SimpleDateFormat;
 
@@ -28,6 +23,7 @@ import logger.LogSetup;
 
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage.StatusType;
+
 import app_kvServer.ConcurrentNode;
 
 public class KVServer implements IKVServer {
@@ -50,15 +46,15 @@ public class KVServer implements IKVServer {
 	// TODO: I think the cache does indeed need to have concurrent access
 	private LinkedHashMap<String, String> cache;
 	// true = write in progress (locked) and false = data is accessible
-	private ConcurrentMap<String, ConcurrentNode> clientRequests = 
+	private ConcurrentHashMap<String, ConcurrentNode> clientRequests = 
 		new ConcurrentHashMap<String, ConcurrentNode>();
 
-	public ConcurrentMap<String, ConcurrentNode> getClientRequests() {
+	public ConcurrentHashMap<String, ConcurrentNode> getClientRequests() {
 		return this.clientRequests;
 	}
 
-	public void setClientRequests(ConcurrentMap<String, ConcurrentNode> clientRequests) {
-		this.clientRequests = clientRequests;
+	public void setClientRequest(String key, ConcurrentNode clientRequest) {
+		this.clientRequests.put(key, clientRequest);
 	}
 
 	/**
@@ -151,92 +147,94 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-	public KVMessage getKV(int clientPort, String key) {
-		logger.info("GET for key=" + key);
+	public KVMessage getKV(final int clientPort, final String key) {
+		logger.info(clientPort+ "> GET for key=" + key);
 		KVMessage res;
 		StatusType getStat = StatusType.GET_SUCCESS;
 		String value = "";
 		boolean queued = false;
 		boolean readLocked = false;
 
+		// TODO: Cleanup the clientRequests after the requests are completed
+		clientRequests.putIfAbsent(key, new ConcurrentNode(MAX_READS));
+		int[] node = { clientPort, NodeOperation.READ.getVal() };
+		clientRequests.get(key).addToQueue(node);
+		queued = true;
+
+		if (test) {
+			logger.debug(clientPort + "> !!!!===wait===!!!!");
+			while (wait)
+				;
+			logger.info(clientPort + "> !!!!===DONE WAITING===!!!!");
+		}
+
 		try {
+			while (clientRequests.get(key).peek()[0] != clientPort);
+			// while (clientRequests.get(key).peek()[1] != NodeOperation.READ.getVal());
+			logger.info(clientPort + "> !!!!===Finished spinning===!!!!");
+
+			clientRequests.get(key).acquire();
+			readLocked = true;
+
 			// Check if key exists
 			if (!inStorage(key)) {
 				getStat = StatusType.GET_ERROR;
-				logger.info("KEY does not exist");
+				logger.info(clientPort + "> KEY does not exist");
 			} else {
 				// TODO: Key could exist here, but then gets deleted in another thread. HANDLE THIS
-				logger.info("looks chill");
-				// TODO: Cleanup the clientRequests after the requests are completed
-				clientRequests.putIfAbsent(key, new ConcurrentNode(MAX_READS));
-				
-				int[] node = { clientPort, NodeOperation.READ.getVal() };
-				clientRequests.get(key).addToQueue(node);
-				queued = true;
-				logger.info("looks okay");
-
-				if (test) {
-					logger.debug("!!!!===wait===!!!!");
-					while (wait)
-						;
-				}
-				logger.debug("!!!!===DONE SERVER===!!!!");
-
-				while (clientRequests.get(key).peek() != null && clientRequests.get(key).peek()[1] == NodeOperation.READ.getVal()) {
-					try {
-						logger.debug("file list1: " + clientRequests.get(key).peek());
-						clientRequests.get(key).acquire();
-						readLocked = true;
-						break;
-					} catch (Exception e) {
-						clientRequests.get(key).release();
-						readLocked = false;
-						throw e;
-					}
-				}
-
-				logger.debug("over here");
-				logger.debug("cnt:" + clientRequests.get(key).availablePermits());
+				logger.info(clientPort + ">looks chill");
+				logger.debug(clientPort + "> cnt:" + clientRequests.get(key).availablePermits());
 
 				// See if marked for deletion:
 				if (clientRequests.get(key).isDeleted()) {
-					logger.info("Key marked for deletion");
-					removeTopQueue(key);
-					clientRequests.get(key).release();
-					queued = false;
-					readLocked = false;
+					logger.info(clientPort + "> Key marked for deletion");
+					if (queued) {
+						logger.info(clientPort + "> !!!!===Removing from queue===!!!!");
+						removeTopQueue(key);
+						queued = false;
+					}
+					if (readLocked) {
+						clientRequests.get(key).release();
+						readLocked = false;
+					}
 					getStat = StatusType.GET_ERROR;
 				} else if (inCache(key)) {
-					logger.info("Cache hit!");
-					removeTopQueue(key);
-					clientRequests.get(key).release();
-					queued = false;
-					readLocked = false;
+					logger.info(clientPort + "> Cache hit!");
+					if (queued) {
+						logger.info(clientPort + "> !!!!===Removing from queue===!!!!");
+						removeTopQueue(key);
+						queued = false;
+					}
+					if (readLocked) {
+						clientRequests.get(key).release();
+						readLocked = false;
+					}
 					value = cache.get(key);
 				} else {
 					File file = new File(STORAGE_DIRECTORY + key);
 					StringBuilder fileContents = new StringBuilder((int) file.length());
-					logger.debug("Gonna open the file now!");
+					logger.debug(clientPort + "> Gonna open the file now!");
 					try (Scanner scanner = new Scanner(file)) {
-						logger.debug("Reading key file!");
+						logger.debug(clientPort + "> Reading key file!");
 						while (scanner.hasNextLine()) {
 							fileContents.append(scanner.nextLine() + System.lineSeparator());
 						}
 							
-						removeTopQueue(key);
-						clientRequests.get(key).release();
-						queued = false;
-						readLocked = false;
+						if (queued) {
+							logger.info(clientPort + "> !!!!===Removing from queue===!!!!");
+							removeTopQueue(key);
+							queued = false;
+						}
+						if (readLocked) {
+							clientRequests.get(key).release();
+							readLocked = false;
+						}
 						
 						value = fileContents.toString().trim();
-						logger.debug("Value=" + value);
+						logger.debug(clientPort + "> Value=" + value);
 						
 						insertCache(key, value);
 					} catch (Error e) {
-						removeTopQueue(key);
-						clientRequests.get(key).release();
-						queued = false;
-						readLocked = false;
 						throw e;
 					}
 				}
@@ -246,6 +244,7 @@ public class KVServer implements IKVServer {
 			getStat = StatusType.GET_ERROR;
 		} finally {
 			if (queued) {
+				logger.info(clientPort + "> !!!!===Removing from queue===!!!!");
 				removeTopQueue(key);
 			}
 			if (readLocked) {
@@ -259,37 +258,37 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-	public KVMessage putKV(int clientPort, final String key, String value) {
-		logger.info("PUT for key=" + key + " value=" + value);
+	public KVMessage putKV(final int clientPort, final String key, final String value) {
+		logger.info(clientPort + "> PUT for key=" + key + " value=" + value);
 		KVMessage res;
+		StatusType putStat;
 
 		// TODO: Cleanup the clientRequests after the requests are completed
 		clientRequests.putIfAbsent(key, new ConcurrentNode(MAX_READS));
-
-		
 		NodeOperation op = value.equals("null") ? NodeOperation.DELETE : NodeOperation.WRITE;
 		// add thread to back of list for this key - add is thread safe
 		int[] node = { clientPort, op.getVal() };
 		clientRequests.get(key).addToQueue(node);
 
 		if (test) {
-			logger.info("!!!!===wait===!!!!");
+			logger.info(clientPort + "> !!!!===wait===!!!!");
 			while (wait)
 				;
+			logger.info(clientPort + "> !!!!===DONE WAITING===!!!!");
 		}
-		logger.info("!!!!===DONE SERVER===!!!!");
 
 		// wait (spin) until threads turn and no one is reading
 		// TODO: If a key gets deleted, I think clientRequests.get(key) would no longer work
-		do {
-		} while (clientRequests.get(key).peek() != null
-				&& (clientRequests.get(key).peek()[0] != clientPort
-						|| clientRequests.get(key).availablePermits() != MAX_READS));
+		while (clientRequests.get(key).peek()[0] != clientPort);
+		// while (clientRequests.get(key).peek()[0] != clientPort || 
+		// 			clientRequests.get(key).availablePermits() != MAX_READS);
+
+		logger.info(clientPort + "> !!!!===Finished spinning===!!!!");
 
 		if (value.equals("null")) {
 			// Delete the key
-			logger.info("Trying to delete record ...");
-			StatusType deleteStat = StatusType.DELETE_SUCCESS;
+			logger.info(clientPort + "> Trying to delete record ...");
+			putStat = StatusType.DELETE_SUCCESS;
 			try {
 				// TODO: Mark it as deleted then loop to see if anybody is reading/writing to it
 				// If a write is after, keep the row by unmarking it as deleted (since the
@@ -302,15 +301,16 @@ public class KVServer implements IKVServer {
 				// Delete it from the cache as well!
 				// remove the top item from the list for this key
 				if (!inStorage(key)) {
-					deleteStat = StatusType.DELETE_ERROR;
+					logger.info(clientPort + "> Not in storage ...");
+					putStat = StatusType.DELETE_ERROR;
 				} else if (!clientRequests.get(key).isDeleted()) {
-					logger.info("Marked for deletion");
+					logger.info(clientPort + "> Marked for deletion");
 					clientRequests.get(key).setDeleted(true);
 
 					Runnable pruneDelete = new Runnable() {
 						@Override
 						public void run() {
-							logger.info("Starting pruning thread");
+							logger.info(clientPort + "> Starting pruning thread");
 							do {
 								// logger.debug("Prune waiting");
 							} while (!clientRequests.get(key).isEmpty());
@@ -322,35 +322,30 @@ public class KVServer implements IKVServer {
 
 							File file = new File(STORAGE_DIRECTORY + key);
 							file.delete();
-							logger.info(key + " successfully pruned");
+							logger.info(clientPort + "> " + key + " successfully pruned");
 						}
 					};
 					clientRequests.get(key).startPruning(pruneDelete);
 				} else {
-					logger.info("Key does not exist - marked for deletion!");
-					deleteStat = StatusType.DELETE_ERROR;
+					logger.info(clientPort + "> Key does not exist - marked for deletion!");
+					putStat = StatusType.DELETE_ERROR;
 				}
 			} catch(Exception e) {
+				logger.info(clientPort + "> Deletion exception ...");
 				logger.error(e);
-				deleteStat = StatusType.DELETE_ERROR;
-			} finally {
-				// remove the top item from the list for this key
-				removeTopQueue(key);
+				putStat = StatusType.DELETE_ERROR;
 			}
-
-			res = new KVMessage(key, value, deleteStat);
 		} else {
 			// Insert/update the key
-			logger.info("Trying to insert/update record");
-			StatusType putStat;
+			logger.info(clientPort + "> Trying to insert/update record");
 			try {
 				if (!inStorage(key)) {
 					// Inserting a new key
-					logger.info("Going to insert record");
+					logger.info(clientPort + "> Going to insert record");
 					putStat = StatusType.PUT_SUCCESS;
 				} else {
 					// Updating a key
-					logger.info("Going to update record");
+					logger.info(clientPort + "> Going to update record");
 					putStat = StatusType.PUT_UPDATE;
 					if (clientRequests.get(key).isDeleted()) {
 						// Stop the deletion
@@ -363,16 +358,18 @@ public class KVServer implements IKVServer {
 				FileWriter myWriter = new FileWriter(STORAGE_DIRECTORY + key);
 				myWriter.write(value);
 				myWriter.close();
+				// Sleep for a bit to let data take effect
+				// Thread.sleep(1000);
 			} catch (Exception e) {
 				logger.error(e);
 				putStat = StatusType.PUT_ERROR;
-			} finally {
-				// remove the top item from the list for this key
-				removeTopQueue(key);
 			}
-			res = new KVMessage(key, value, putStat);
 		}
-
+		
+		// remove the top item from the list for this key
+		removeTopQueue(key);
+		logger.info(clientPort + "> !!!!===Removing from queue===!!!!");
+		res = new KVMessage(key, value, putStat);
 		return res;
 	}
 
@@ -458,9 +455,9 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	private void removeTopQueue(String key) {
+	private synchronized void removeTopQueue(String key) {
 		if (clientRequests.get(key).peek() != null) {
-			clientRequests.get(key).remove();
+			clientRequests.get(key).poll();
 		}
 	}
 

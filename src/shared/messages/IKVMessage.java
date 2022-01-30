@@ -51,5 +51,7 @@ public interface IKVMessage {
 	public StatusType getStatus();
 
 	public String print();
+
+	public boolean equal(IKVMessage other);
 	
 }

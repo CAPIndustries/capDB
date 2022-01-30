@@ -3,12 +3,13 @@ package app_kvServer;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+
 import java.net.Socket;
 
-import org.apache.log4j.*;
+import org.apache.log4j.Logger;
 
-import shared.messages.IKVMessage;
 import shared.messages.KVMessage;
+import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 
 /**

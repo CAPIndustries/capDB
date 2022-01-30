@@ -1,6 +1,7 @@
 package shared.messages;
 
 import java.io.Serializable;
+import java.util.Objects;
 
 /**
  * Represents a simple text message, which is intended to be received and sent 
@@ -83,11 +84,20 @@ public class KVMessage implements Serializable, IKVMessage {
 	@Override
 	public String print() {
 		StringBuilder res = new StringBuilder();
-		res.append("Status=" + status);
-		if (key.length() > 0) res.append(",Key=" + key);
-		if (value.length() > 0) res.append(",Value=" + value);
+		if (status != null) res.append("Status=" + status);
+		if (key != null) res.append(",Key=" + key);
+		if (value != null) res.append(",Value=" + value);
 
 		return res.length() > 0 ? res.toString() : "<NULL>";
+	}
+
+	@Override
+	public boolean equal(IKVMessage other) {
+		if (this.getStatus() != other.getStatus()) return false;
+		if (!Objects.equals(this.getKey(), other.getKey())) return false;
+		if (!Objects.equals(this.getValue(), other.getValue())) return false;
+
+		return true;
 	}
 
 	/**
