@@ -45,28 +45,28 @@ public class AllTests {
 
 		// ConnectionTest.port = PORT;
 		// clientSuite.addTestSuite(ConnectionTest.class);
-		
+
 		// BasicTest.server = kvserver;
 		// BasicTest.port = PORT;
 		// clientSuite.addTestSuite(BasicTest.class);
-		
+
 		// ConcurrencyBasicTest.server = kvserver;
 		// ConcurrencyBasicTest.port = PORT;
 		// clientSuite.addTestSuite(ConcurrencyBasicTest.class);
-
 
 		PerformanceBasicTest.server = kvserver;
 		PerformanceBasicTest.port = PORT;
 		clientSuite.addTestSuite(PerformanceBasicTest.class);
 
-		ConcurrencyHardTest.server = kvserver;
-		ConcurrencyHardTest.port = PORT;
-		clientSuite.addTestSuite(ConcurrencyHardTest.class);
+		// ConcurrencyHardTest.server = kvserver;
+		// ConcurrencyHardTest.port = PORT;
+		// clientSuite.addTestSuite(ConcurrencyHardTest.class);
 
 		// clientSuite.addTestSuite(AdditionalTest.class);
 		// clientSuite.addTestSuite(CacheTest.class);
 
 		return clientSuite;
 	}
-	// TODO Write a test case to check to make sure connection times out for a response
+	// TODO Write a test case to check to make sure connection times out for a
+	// response
 }

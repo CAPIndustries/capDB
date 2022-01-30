@@ -50,95 +50,94 @@ public class ClientConnection implements Runnable {
 	 * Loops until the connection is closed or aborted by the client.
 	 */
 	public void run() {
+		Long sum = (long) 0;
 		try {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
-
 			while (isOpen) {
 				try {
+					Long start = System.nanoTime();
 					KVMessage latestMsg = receiveMessage();
-					if (latestMsg == null) return;
+					if (latestMsg == null)
+						return;
 					switch (latestMsg.getStatus()) {
 						case PUT:
 							KVMessage putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
 							sendMessage(putRes);
+							sum += System.nanoTime() - start;
 							break;
 						case GET:
 							KVMessage getRes = getKV(latestMsg.getKey());
 							sendMessage(getRes);
+							sum += System.nanoTime() - start;
 							break;
 						case HEARTBEAT:
-							// Just echo it back 
+							// Just echo it back
 							sendMessage(latestMsg);
 							break;
 						default:
-							logger.warn("<" 
-								+ clientSocket.getInetAddress().getHostAddress() + ":" 
-								+ clientSocket.getPort() + "> Unrecognized Status! Status=" + latestMsg.getStatus()
-							);
-							
+							logger.warn("<"
+									+ clientSocket.getInetAddress().getHostAddress() + ":"
+									+ clientSocket.getPort() + "> Unrecognized Status! Status="
+									+ latestMsg.getStatus());
+
 							// Send a bad request back to the client
-							KVMessage errorRes = new KVMessage(latestMsg.getKey(), 
-								"Bad request! Unknown status", 
-								StatusType.BAD_REQUEST
-							);
+							KVMessage errorRes = new KVMessage(latestMsg.getKey(),
+									"Bad request! Unknown status",
+									StatusType.BAD_REQUEST);
 							sendMessage(errorRes);
+							sum += System.nanoTime() - start;
 							break;
 					}
-				/* connection either terminated by the client or lost due to 
-				 * network problems */	
+					/*
+					 * connection either terminated by the client or lost due to
+					 * network problems
+					 */
 				} catch (IOException ioe) {
-					logger.error("<" 
-						+ clientSocket.getInetAddress().getHostAddress() + ":" 
-						+ clientSocket.getPort() + "> Error! Connection lost!"
-					);
+					logger.error("<"
+							+ clientSocket.getInetAddress().getHostAddress() + ":"
+							+ clientSocket.getPort() + "> Error! Connection lost!");
 					isOpen = false;
 				}
 			}
-
 		} catch (IOException ioe) {
-			logger.error("<" 
-				+ clientSocket.getInetAddress().getHostAddress() + ":" 
-				+ clientSocket.getPort() + "> Error! Connection could not be established!", ioe
-			);
+			logger.error("<"
+					+ clientSocket.getInetAddress().getHostAddress() + ":"
+					+ clientSocket.getPort() + "> Error! Connection could not be established!", ioe);
 		} finally {
 			try {
 				if (clientSocket != null) {
-					logger.info("<" 
-						+ clientSocket.getInetAddress().getHostAddress() + ":" 
-						+ clientSocket.getPort() + "> Tearing down connection ..."
-					);
+					logger.info("Thread " + "" + (int) Thread.currentThread().getId() + " Lat: " + sum);
+					logger.info("<"
+							+ clientSocket.getInetAddress().getHostAddress() + ":"
+							+ clientSocket.getPort() + "> Tearing down connection ...");
 					input.close();
 					output.close();
 					clientSocket.close();
-					logger.info("<" 
-						+ clientSocket.getInetAddress().getHostAddress() + ":" 
-						+ clientSocket.getPort() + "> Connection closed"
-					);
+					logger.info("<"
+							+ clientSocket.getInetAddress().getHostAddress() + ":"
+							+ clientSocket.getPort() + "> Connection closed");
 				}
 			} catch (IOException ioe) {
-				logger.error("<" 
-					+ clientSocket.getInetAddress().getHostAddress() + ":" 
-					+ clientSocket.getPort() + "> Error! Unable to tear down connection!", ioe
-				);
+				logger.error("<"
+						+ clientSocket.getInetAddress().getHostAddress() + ":"
+						+ clientSocket.getPort() + "> Error! Unable to tear down connection!", ioe);
 			}
 		}
 	}
 
 	private KVMessage putKV(String key, String value) {
-		logger.info("<" 
-			+ clientSocket.getInetAddress().getHostAddress() + ":" 
-			+ clientSocket.getPort() + "> (PUT): KEY=" + key + " VALUE=" + value
-		);
+		logger.info("<"
+				+ clientSocket.getInetAddress().getHostAddress() + ":"
+				+ clientSocket.getPort() + "> (PUT): KEY=" + key + " VALUE=" + value);
 
 		return server.putKV(clientSocket.getPort(), key, value);
 	}
 
 	private KVMessage getKV(String key) {
-		logger.info("<" 
-			+ clientSocket.getInetAddress().getHostAddress() + ":" 
-			+ clientSocket.getPort() + "> (GET): KEY=" + key
-		);
+		logger.info("<"
+				+ clientSocket.getInetAddress().getHostAddress() + ":"
+				+ clientSocket.getPort() + "> (GET): KEY=" + key);
 
 		return server.getKV(clientSocket.getPort(), key);
 	}
@@ -155,14 +154,13 @@ public class ClientConnection implements Runnable {
 		output.flush();
 
 		if (msg.getStatus() != StatusType.HEARTBEAT) {
-			logger.info("<" 
-				+ clientSocket.getInetAddress().getHostAddress() + ":" 
-				+ clientSocket.getPort() + "> (SEND): STATUS=" 
-				+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
-			);
+			logger.info("<"
+					+ clientSocket.getInetAddress().getHostAddress() + ":"
+					+ clientSocket.getPort() + "> (SEND): STATUS="
+					+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue());
 		}
-    }
-	
+	}
+
 	private KVMessage receiveMessage() throws IOException {
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
@@ -231,12 +229,11 @@ public class ClientConnection implements Runnable {
 		/* build final result */
 		KVMessage msg = new KVMessage(msgBytes);
 
-		if (msg.getStatus() != StatusType.HEARTBEAT){
-			logger.info("<" 
-				+ clientSocket.getInetAddress().getHostAddress() + ":" 
-				+ clientSocket.getPort() + "> (RECEIVE): STATUS=" 
-				+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue()
-			);
+		if (msg.getStatus() != StatusType.HEARTBEAT) {
+			logger.info("<"
+					+ clientSocket.getInetAddress().getHostAddress() + ":"
+					+ clientSocket.getPort() + "> (RECEIVE): STATUS="
+					+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue());
 		}
 
 		return msg;
