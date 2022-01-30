@@ -16,7 +16,7 @@ import shared.messages.IKVMessage.StatusType;
 public class BasicTest extends TestCase {
 
 	private final String STORAGE_DIRECTORY = "storage/";
-	
+
 	private KVStore kvClient;
 	private static Logger logger = Logger.getRootLogger();
 	public static KVServer server;
@@ -44,7 +44,7 @@ public class BasicTest extends TestCase {
 
 		IKVMessage response = null;
 		Exception ex = null;
-		
+
 		try {
 			response = kvClient.put(KEY, VALUE);
 		} catch (Exception e) {
@@ -79,7 +79,7 @@ public class BasicTest extends TestCase {
 		} catch (Exception e) {
 			ex = e;
 		}
-		
+
 		assertNull(ex);
 		assertTrue(new File(STORAGE_DIRECTORY + KEY).isFile());
 		assertTrue(response.getStatus() == StatusType.PUT_UPDATE);
@@ -114,6 +114,24 @@ public class BasicTest extends TestCase {
 		assertNull(ex);
 		assertFalse(new File(STORAGE_DIRECTORY + KEY).isFile());
 		assertTrue(response.getStatus() == StatusType.DELETE_SUCCESS);
+		assertTrue(response.getKey().equals(KEY));
+	}
+
+	public void testDeleteError() {
+		logger.info("====TEST GET Error====");
+		final String KEY = "foo";
+		final String VALUE = "null";
+		IKVMessage response = null;
+		Exception ex = null;
+
+		try {
+			response = kvClient.put(KEY, VALUE);
+		} catch (Exception e) {
+			ex = e;
+		}
+
+		assertNull(ex);
+		assertTrue(response.getStatus() == StatusType.DELETE_ERROR);
 		assertTrue(response.getKey().equals(KEY));
 	}
 
@@ -170,5 +188,5 @@ public class BasicTest extends TestCase {
 		assertTrue(response.getStatus() == StatusType.GET_ERROR);
 		assertTrue(response.getKey().equals(KEY));
 	}
-	
+
 }

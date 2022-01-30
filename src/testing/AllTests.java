@@ -43,27 +43,24 @@ public class AllTests {
 	public static Test suite() {
 		TestSuite clientSuite = new TestSuite("Basic Storage ServerTest-Suite");
 
-		// ConnectionTest.port = PORT;
-		// clientSuite.addTestSuite(ConnectionTest.class);
+		ConnectionTest.port = PORT;
+		ConnectionTest.server = kvserver;
+		clientSuite.addTestSuite(ConnectionTest.class);
 
-		// BasicTest.server = kvserver;
-		// BasicTest.port = PORT;
-		// clientSuite.addTestSuite(BasicTest.class);
+		BasicTest.server = kvserver;
+		BasicTest.port = PORT;
+		clientSuite.addTestSuite(BasicTest.class);
 
-		// ConcurrencyBasicTest.server = kvserver;
-		// ConcurrencyBasicTest.port = PORT;
-		// clientSuite.addTestSuite(ConcurrencyBasicTest.class);
+		ConcurrencyBasicTest.server = kvserver;
+		ConcurrencyBasicTest.port = PORT;
+		clientSuite.addTestSuite(ConcurrencyBasicTest.class);
 
-		PerformanceBasicTest.server = kvserver;
-		PerformanceBasicTest.port = PORT;
-		clientSuite.addTestSuite(PerformanceBasicTest.class);
+		ConcurrencyHardTest.server = kvserver;
+		ConcurrencyHardTest.port = PORT;
+		clientSuite.addTestSuite(ConcurrencyHardTest.class);
 
-		// ConcurrencyHardTest.server = kvserver;
-		// ConcurrencyHardTest.port = PORT;
-		// clientSuite.addTestSuite(ConcurrencyHardTest.class);
-
-		// clientSuite.addTestSuite(AdditionalTest.class);
-		// clientSuite.addTestSuite(CacheTest.class);
+		clientSuite.addTestSuite(AdditionalTest.class);
+		clientSuite.addTestSuite(CacheTest.class);
 
 		return clientSuite;
 	}
