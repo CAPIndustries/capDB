@@ -1,6 +1,5 @@
 package app_kvServer;
 
-import java.util.Queue;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -9,7 +8,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.Semaphore;
 
 public class ConcurrentNode {
-	private Queue<int[]> q;
+	private ConcurrentLinkedQueue<int[]> q;
 	private boolean deleted;
 	private Semaphore read; // semaphore to allow multiple reads
 	private ScheduledFuture<?> deleteThread;
@@ -36,8 +35,8 @@ public class ConcurrentNode {
 		return q.peek();
 	}
 
-	public void remove() {
-		q.remove();
+	public void poll() {
+		q.poll();
 	}
 
 	public void addToQueue(int[] node) {
@@ -76,11 +75,11 @@ public class ConcurrentNode {
 		}
 	}
 
-	public void setQ(Queue<int[]> q2) {
-		this.q = q2;
+	public void setQ(ConcurrentLinkedQueue<int[]> q) {
+		this.q = q;
 	}
 
-	public Queue<int[]> getQ() {
+	public ConcurrentLinkedQueue<int[]> getQ() {
 		return this.q;
 	}
 

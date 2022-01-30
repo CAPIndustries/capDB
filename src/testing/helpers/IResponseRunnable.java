@@ -1,4 +1,4 @@
-package testing;
+package testing.helpers;
 
 import shared.messages.IKVMessage;
 

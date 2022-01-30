@@ -1,27 +1,30 @@
 package testing;
 
-import org.junit.Test;
+import java.io.File;
 
 import junit.framework.TestCase;
-import logger.LogSetup;
 
-import java.util.Queue;
 import java.util.ArrayList;
-import java.util.concurrent.*;
+import java.util.concurrent.ConcurrentLinkedQueue;
 
-import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import app_kvServer.KVServer;
 import app_kvServer.ConcurrentNode;
 
+import shared.messages.KVMessage;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 
 import client.KVStore;
-import testing.IResponseRunnable;
+
+import testing.helpers.GetRunnable;
+import testing.helpers.IResponseRunnable;
+import testing.helpers.PutRunnable;
 
 public class ConcurrencyHardTest extends TestCase {
+
+	private final String STORAGE_DIRECTORY = "storage/";
 
 	private KVStore kvClient;
 	private static Logger logger = Logger.getRootLogger();
@@ -31,6 +34,7 @@ public class ConcurrencyHardTest extends TestCase {
 	public void setUp() {
 		kvClient = new KVStore("localhost", port);
 		try {
+			server.clearStorage();
 			kvClient.connect();
 		} catch (Exception e) {
 			logger.error(e);
@@ -44,72 +48,51 @@ public class ConcurrencyHardTest extends TestCase {
 	
 	public void testConcurrentDelete() {
 		final int NUM_CONNECTIONS = 5;
-		final String key = "key";
-		final String value = "woah";
 		logger.info("====TEST " + NUM_CONNECTIONS + " concurrent DELETES====");
+
+		final String KEY = "key";
+		String value = "woah";
 
 		IKVMessage response = null;
 		Exception ex = null;
 		try {
-			response = kvClient.put(key, value);
+			response = kvClient.put(KEY, value);
 		} catch (Exception e) {
 			ex = e;
 		}
 
 		assertNull(ex);
+		assertTrue(new File(STORAGE_DIRECTORY + KEY).isFile());
 		assertTrue(response.getStatus() == StatusType.PUT_SUCCESS);
-		assertTrue(response.getKey().equals(key));
+		assertTrue(response.getKey().equals(KEY));
 		assertTrue(response.getValue().equals(value));
-
-		class ResponseRunnable implements IResponseRunnable {
-			private volatile IKVMessage response;
-			private volatile int id;
-
-			@Override
-			public void run() {
-				try {
-					Logger logger = Logger.getRootLogger();
-					logger.info("======Thread! START======");
-					KVStore kv = new KVStore("localhost", port);
-					kv.connect();
-					this.id = id;
-					IKVMessage response = kv.put(key, "null");
-					logger.info("======Thread! DONE======");
-					logger.info("======Thread! Get: " + response.getValue() + "======");
-					this.response = response;
-					kv.disconnect();
-				} catch (Exception e) {
-					logger.error("Error in Thread:" + Thread.currentThread().getId() + ": " + e);
-				}
-			}
-
-			@Override
-			public IKVMessage getResponse() {
-				return this.response;
-			}
-
-			@Override
-			public int getID() {
-				return this.id;
-			}
-		}
-
+		
+		// Start the delete
+		value = "null";
 		server.wait = true;
 
 		logger.info("======Thread! Spawning======");
-		ResponseRunnable[] values = new ResponseRunnable[NUM_CONNECTIONS];
+		IResponseRunnable[] values = new IResponseRunnable[NUM_CONNECTIONS];
 		Thread[] threads = new Thread[NUM_CONNECTIONS];
 		for (int i = 0; i < NUM_CONNECTIONS; ++i) {
-			values[i] = new ResponseRunnable();
+			values[i] = new PutRunnable(port, KEY, false, value, false);
 			threads[i] = new Thread(values[i]);
 			threads[i].start();
 		}
 
-		while (server.getClientRequests().get(key).len() != NUM_CONNECTIONS) {
-		}
-		;
+		while (!server.inQueue(KEY));
 
-		logger.info("Queue: " + server.getClientRequests().get(key).printQ());
+		logger.info("Sleeping for a bit");
+		try {
+			Thread.sleep(2000);
+		} catch (InterruptedException ie) {
+			fail("InterruptedException thrown!");
+		}
+
+		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS);
+
+		int deleterID = server.getClientRequests().get(KEY).peek()[0];
+		logger.info("Deletor:" + deleterID);
 
 		server.wait = false;
 
@@ -117,9 +100,9 @@ public class ConcurrencyHardTest extends TestCase {
 			for (int i = 0; i < NUM_CONNECTIONS; ++i) {
 				threads[i].join();
 				IKVMessage tResponse = values[i].getResponse();
-				assertTrue(tResponse.getKey().equals(key));
+				assertTrue(tResponse.getKey().equals(KEY));
 				logger.info("Thread " + threads[i].getId() + " got:" + tResponse.getStatus());
-				if (i == 0) {
+				if (values[i].getID() == deleterID) {
 					assertTrue(tResponse.getStatus() == StatusType.DELETE_SUCCESS);
 				} else {
 					assertTrue(tResponse.getStatus() == StatusType.DELETE_ERROR);
@@ -132,13 +115,98 @@ public class ConcurrencyHardTest extends TestCase {
 		assertNull(ex);
 
 		try {
-			response = kvClient.get(key);
+			response = kvClient.get(KEY);
+			// Wait for pruning to complete:
+			Thread.sleep(500);
 		} catch (Exception e) {
 			ex = e;
 		}
 
 		assertNull(ex);
+		assertFalse(new File(STORAGE_DIRECTORY + KEY).isFile());
 		assertTrue(response.getStatus() == StatusType.GET_ERROR);
-		assertTrue(response.getKey() == key);
+		assertTrue(response.getKey().equals(KEY));
+	}
+
+	// Test case: WRRRDR, W = WRITE, R = READ, D = DELETE
+	public void testContention1() {
+		final String TEST_CASE = "WRRRDR";
+		final int NUM_CONNECTIONS = TEST_CASE.length();
+		logger.info("====TEST concurrent contention 1: " + TEST_CASE + "(" + NUM_CONNECTIONS + " connections)====");
+
+		final String KEY = "contention1";
+		final String VALUE = "woah";
+
+		IKVMessage response = null;
+		Exception ex = null;
+		
+		// Construct the test runnables
+		// Test: WRRRDR
+		int i = 0;
+		IResponseRunnable[] values = new IResponseRunnable[NUM_CONNECTIONS];
+		values[i++] = new PutRunnable(port, KEY, false, VALUE, false);
+		values[i++] = new GetRunnable(port, KEY);
+		values[i++] = new GetRunnable(port, KEY);
+		values[i++] = new GetRunnable(port, KEY);
+		values[i++] = new PutRunnable(port, KEY, false, "null", false);
+		values[i++] = new GetRunnable(port, KEY);
+		assertTrue(i == NUM_CONNECTIONS);
+		
+		i = 0;
+		IKVMessage[] expected = new KVMessage[NUM_CONNECTIONS];
+		expected[i++] = new KVMessage(KEY, VALUE, StatusType.PUT_SUCCESS);
+		expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
+		expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
+		expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
+		expected[i++] = new KVMessage(KEY, "null", StatusType.DELETE_SUCCESS);
+		expected[i++] = new KVMessage(KEY, null, StatusType.GET_ERROR);
+		assertTrue(i == NUM_CONNECTIONS);
+		
+		server.wait = true;
+		// Start the threads
+		logger.info("======Thread! Spawning======");
+		Thread[] threads = new Thread[NUM_CONNECTIONS];
+		for (i = 0; i < NUM_CONNECTIONS; ++i) {
+			threads[i] = new Thread(values[i]);
+			threads[i].start();
+		}
+
+		while (!server.inQueue(KEY));
+		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS);
+		
+		logger.info("Fixing the Queue to:" + TEST_CASE);
+
+		ConcurrentNode node = server.getClientRequests().get(KEY);
+		ArrayList<int[]> oldQ = new ArrayList<int[]>(node.getQ());
+		ConcurrentLinkedQueue<int[]> newQ = new ConcurrentLinkedQueue<int[]>();
+
+		logger.info("Queue now: " + node.printQ());
+
+		for (i = 0; i < NUM_CONNECTIONS; ++i) {
+			for (int j = 0; j < NUM_CONNECTIONS; ++j) {
+				if (values[i].getID() == oldQ.get(j)[0]) {
+					newQ.add(oldQ.get(j));
+				}
+			}
+		}
+		node.setQ(newQ);
+		logger.info("Debug queue after: " + node.printQ());
+		
+		server.setClientRequest(KEY, node);
+		logger.info("Queue after: " + server.getClientRequests().get(KEY).printQ());
+
+		server.wait = false;
+
+		try {
+			for (i = 0; i < NUM_CONNECTIONS; ++i) {
+				threads[i].join();
+				assertTrue(values[i].getResponse().equal(expected[i]));
+			}
+		} catch (Exception e) {
+			ex = e;
+		}
+
+		assertNull(ex);
+		assertFalse(new File(STORAGE_DIRECTORY + KEY).isFile());
 	}
 }

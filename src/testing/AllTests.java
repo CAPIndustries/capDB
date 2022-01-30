@@ -6,12 +6,13 @@ import org.apache.log4j.Level;
 
 import java.io.File;
 
+import junit.framework.Test;
+import junit.framework.TestSuite;
+
 import logger.LogSetup;
 
 import app_kvServer.KVServer;
 import app_kvServer.IKVServer.CacheStrategy;
-import junit.framework.Test;
-import junit.framework.TestSuite;
 
 public class AllTests {
 	private static KVServer kvserver;
@@ -22,7 +23,7 @@ public class AllTests {
 			File file = new File("logs/testing/test.log");
 			file.delete();
 
-			new LogSetup("logs/testing/test.log", Level.OFF);
+			new LogSetup("logs/testing/test.log", Level.INFO);
 			kvserver = new KVServer(PORT, 10, CacheStrategy.FIFO);
 			kvserver.test = true;
 			Runnable server = new Runnable() {
@@ -53,11 +54,12 @@ public class AllTests {
 		ConcurrencyBasicTest.port = PORT;
 		clientSuite.addTestSuite(ConcurrencyBasicTest.class);
 
-		// ConcurrencyHardTest.server = kvserver;
-		// ConcurrencyHardTest.port = PORT;
-		// clientSuite.addTestSuite(ConcurrencyHardTest.class);
+		ConcurrencyHardTest.server = kvserver;
+		ConcurrencyHardTest.port = PORT;
+		clientSuite.addTestSuite(ConcurrencyHardTest.class);
 
 		// clientSuite.addTestSuite(AdditionalTest.class);
+		// clientSuite.addTestSuite(CacheTest.class);
 
 		return clientSuite;
 	}
