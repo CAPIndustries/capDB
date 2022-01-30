@@ -129,27 +129,8 @@ public class ClientConnection implements Runnable {
 			+ clientSocket.getInetAddress().getHostAddress() + ":" 
 			+ clientSocket.getPort() + "> (PUT): KEY=" + key + " VALUE=" + value
 		);
-		KVMessage res;
-		
-		try {
-			StatusType putStatus;
-			if (value.equals("null")) {
-				putStatus = StatusType.DELETE_SUCCESS;
-			} else if (server.inStorage(key)) {
-				putStatus = StatusType.PUT_UPDATE;
-			} else {
-				putStatus = StatusType.PUT_SUCCESS;
-			}
-			server.putKV(key, value);
-			
-			res = new KVMessage(key, value, putStatus);
-		} catch (Exception e) {
-			// TODO: handle exception
-			StatusType putStatus = value.equals("null") ? StatusType.DELETE_ERROR : StatusType.PUT_ERROR;
-			res = new KVMessage(key, value, putStatus);
-		}
 
-		return res;
+		return server.putKV(clientSocket.getPort(), key, value);
 	}
 
 	private KVMessage getKV(String key) {
@@ -158,18 +139,7 @@ public class ClientConnection implements Runnable {
 			+ clientSocket.getPort() + "> (GET): KEY=" + key
 		);
 
-		String value;
-		KVMessage res;
-
-		try {
-			value = server.getKV(key);
-			res = new KVMessage(key, value, StatusType.GET_SUCCESS);
-		} catch (Exception e) {
-			//TODO: handle exception
-			res = new KVMessage(key, e.getMessage(), StatusType.GET_ERROR);
-		}
-
-		return res;
+		return server.getKV(clientSocket.getPort(), key);
 	}
 
 	/**
