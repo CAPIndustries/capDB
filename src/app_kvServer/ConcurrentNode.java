@@ -86,7 +86,7 @@ public class ConcurrentNode {
 
 	public String printQ() {
 		StringBuilder res = new StringBuilder();
-		for (int[] node : this.q) {
+		for (int[] node : q) {
 			StringBuilder subRes = new StringBuilder();
 			for (int i = 0; i < node.length; ++i) {
 				subRes.append(node[i]);

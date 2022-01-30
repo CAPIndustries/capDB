@@ -22,7 +22,7 @@ public class AllTests {
 			File file = new File("logs/testing/test.log");
 			file.delete();
 
-			new LogSetup("logs/testing/test.log", Level.INFO);
+			new LogSetup("logs/testing/test.log", Level.OFF);
 			kvserver = new KVServer(PORT, 10, CacheStrategy.FIFO);
 			kvserver.test = true;
 			Runnable server = new Runnable() {
@@ -42,16 +42,16 @@ public class AllTests {
 	public static Test suite() {
 		TestSuite clientSuite = new TestSuite("Basic Storage ServerTest-Suite");
 
-		// ConnectionTest.port = PORT;
-		// clientSuite.addTestSuite(ConnectionTest.class);
+		ConnectionTest.port = PORT;
+		clientSuite.addTestSuite(ConnectionTest.class);
 		
 		BasicTest.server = kvserver;
 		BasicTest.port = PORT;
 		clientSuite.addTestSuite(BasicTest.class);
 		
-		// ConcurrencyBasicTest.server = kvserver;
-		// ConcurrencyBasicTest.port = PORT;
-		// clientSuite.addTestSuite(ConcurrencyBasicTest.class);
+		ConcurrencyBasicTest.server = kvserver;
+		ConcurrencyBasicTest.port = PORT;
+		clientSuite.addTestSuite(ConcurrencyBasicTest.class);
 
 		// ConcurrencyHardTest.server = kvserver;
 		// ConcurrencyHardTest.port = PORT;

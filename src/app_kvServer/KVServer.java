@@ -50,14 +50,15 @@ public class KVServer implements IKVServer {
 	// TODO: I think the cache does indeed need to have concurrent access
 	private LinkedHashMap<String, String> cache;
 	// true = write in progress (locked) and false = data is accessible
-	ConcurrentMap<String, ConcurrentNode> clientRequests = new ConcurrentHashMap<String, ConcurrentNode>();
+	private ConcurrentMap<String, ConcurrentNode> clientRequests = 
+		new ConcurrentHashMap<String, ConcurrentNode>();
 
 	public ConcurrentMap<String, ConcurrentNode> getClientRequests() {
 		return this.clientRequests;
 	}
 
-	public void setFileList(ConcurrentMap<String, ConcurrentNode> newlist) {
-		this.clientRequests = newlist;
+	public void setClientRequests(ConcurrentMap<String, ConcurrentNode> clientRequests) {
+		this.clientRequests = clientRequests;
 	}
 
 	/**
@@ -131,8 +132,7 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-	public boolean inStorage(String key) {
-		// return clientRequests.containsKey(key);
+	public synchronized boolean inStorage(String key) {
 		return new File(STORAGE_DIRECTORY + key).isFile();
 	}
 
@@ -265,6 +265,7 @@ public class KVServer implements IKVServer {
 
 		// TODO: Cleanup the clientRequests after the requests are completed
 		clientRequests.putIfAbsent(key, new ConcurrentNode(MAX_READS));
+
 		
 		NodeOperation op = value.equals("null") ? NodeOperation.DELETE : NodeOperation.WRITE;
 		// add thread to back of list for this key - add is thread safe
@@ -309,6 +310,7 @@ public class KVServer implements IKVServer {
 					Runnable pruneDelete = new Runnable() {
 						@Override
 						public void run() {
+							logger.info("Starting pruning thread");
 							do {
 								// logger.debug("Prune waiting");
 							} while (!clientRequests.get(key).isEmpty());
@@ -421,6 +423,10 @@ public class KVServer implements IKVServer {
 			logger.info("Gonna put key in cache!");
 			cache.put(key, value);
 		}
+	}
+
+	public boolean inQueue(String key) {
+		return clientRequests.containsKey(key);
 	}
 
 	/**

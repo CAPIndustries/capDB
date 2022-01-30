@@ -43,9 +43,6 @@ public class ConcurrencyBasicTest extends TestCase {
 	}
 
 	public void testConcurrentGet() {
-		assertTrue(true);
-		if (true) return;
-
 		final int NUM_CONNECTIONS = 5;
 		logger.info("====TEST " + NUM_CONNECTIONS + " concurrent GETS====");
 
@@ -119,7 +116,7 @@ public class ConcurrencyBasicTest extends TestCase {
 			for (int i = 0; i < NUM_CONNECTIONS; ++i) {
 				threads[i].join();
 				IKVMessage tResponse = values[i].getResponse();
-				assertTrue(tResponse.getStatus() == StatusType.PUT_SUCCESS);
+				assertTrue(tResponse.getStatus() == StatusType.GET_SUCCESS);
 				assertTrue(tResponse.getKey().equals(key));
 				assertTrue(tResponse.getValue().equals(value));
 			}
@@ -131,9 +128,6 @@ public class ConcurrencyBasicTest extends TestCase {
 	}
 
 	public void testConcurrentPutDiffKeys() {
-		assertTrue(true);
-		if (true) return;
-
 		final int NUM_CONNECTIONS = 5;
 		final String KEY_PREFIX = "key_";
 		final String VALUE = "foo";
@@ -184,17 +178,6 @@ public class ConcurrencyBasicTest extends TestCase {
 			threads[i].start();
 		}
 
-		while (true) {
-			int done = 0;
-			for (int i = 0; i < NUM_CONNECTIONS; ++i) {
-				if (server.inStorage(KEY_PREFIX + values[i].getID())) {
-					done += 1;
-				}
-			} 
-			
-			if (done == NUM_CONNECTIONS) break;
-		}
-
 		server.wait = false;
 
 		Exception ex = null;
@@ -202,6 +185,7 @@ public class ConcurrencyBasicTest extends TestCase {
 			for (int i = 0; i < NUM_CONNECTIONS; ++i) {
 				threads[i].join();
 				IKVMessage tResponse = values[i].getResponse();
+				assertTrue(server.inStorage(KEY_PREFIX + values[i].getID()));
 				assertTrue(tResponse.getStatus() == StatusType.PUT_SUCCESS);
 				assertTrue(tResponse.getKey().equals(KEY_PREFIX + values[i].getID()));
 				assertTrue(tResponse.getValue().equals(VALUE));
@@ -263,41 +247,45 @@ public class ConcurrencyBasicTest extends TestCase {
 			threads[i].start();
 		}
 
-		while (!server.inStorage(KEY) ||
-				server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS) {
+		while (!server.inQueue(KEY)) {
+		}
+		;
+
+		logger.info("Sleeping for a bit");
+		try {
+			Thread.sleep(2000);
+		} catch (InterruptedException ie) {
+			fail("InterruptedException thrown!");
+		}
+
+		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS) {
 		}
 		;
 
 		int keyCreator = server.getClientRequests().get(KEY).peek()[0];
-		logger.info("Queue: " + server.getClientRequests().get(KEY).printQ());
-		logger.info("Creator:" + keyCreator);
 
 		server.wait = false;
 
 		Exception ex = null;
-		int successes = 0;
 		try {
 			for (int i = 0; i < NUM_CONNECTIONS; ++i) {
 				threads[i].join();
 				IKVMessage tResponse = values[i].getResponse();
-				if (tResponse.getStatus() == StatusType.PUT_SUCCESS) {
-					successes += 1;
-				}
-				logger.info("Thread key:" + values[i].getID());
+				
 				if (values[i].getID() == keyCreator) {
-					logger.info("I think he's the creator:" + values[i].getID());
 					assertTrue(tResponse.getStatus() == StatusType.PUT_SUCCESS);
 				} else {
 					assertTrue(tResponse.getStatus() == StatusType.PUT_UPDATE);
 				}
+
 				assertTrue(tResponse.getKey().equals(KEY));
 				assertTrue(tResponse.getValue().equals(VALUE_PREFIX + values[i].getID()));
 			}
+			assertTrue(server.inStorage(KEY));
 		} catch (Exception e) {
 			ex = e;
 		}
 
-		// assertTrue(successes == );
 		assertNull(ex);
 	}
 }
