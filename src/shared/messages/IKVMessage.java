@@ -49,6 +49,8 @@ public interface IKVMessage {
 	 * response types and error types associated to the message.
 	 */
 	public StatusType getStatus();
+
+	public String print();
 	
 }
 

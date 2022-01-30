@@ -33,6 +33,8 @@ public class KVServer implements IKVServer {
 	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.LRU;
 	private static final int START_CACHE_SIZE = 16;
 	private static final int MAX_READS = 100;
+	public boolean test = false;
+	public boolean wait = false;
 
 	private static Logger logger = Logger.getRootLogger();
 	private int port;
@@ -43,12 +45,20 @@ public class KVServer implements IKVServer {
 	private File storageDirectory = new File(STORAGE_DIRECTORY);
 
 	// TODO: I think the cache does indeed need to have concurrent access
-	private LinkedHashMap<String, String> cache = new LinkedHashMap<String, String>();
+	private LinkedHashMap<String, String> cache;
 	// true = write in progress (locked) and false = data is accessible
 	ConcurrentMap<String, ConcurrentNode> fileList = new ConcurrentHashMap<String, ConcurrentNode>();
 
 	// semaphore map to allow multiple reads
 	ConcurrentMap<String, Semaphore> readMap = new ConcurrentHashMap<String, Semaphore>();
+
+	public ConcurrentMap<String, ConcurrentNode> getFileList() {
+		return this.fileList;
+	}
+
+	public void setFileList(ConcurrentMap<String, ConcurrentNode> newlist) {
+		this.fileList = newlist;
+	}
 
 	/**
 	 * Start KV Server at given port
@@ -76,6 +86,8 @@ public class KVServer implements IKVServer {
 					return size() > cacheSize;
 				}
 			};
+		} else if (strategy == CacheStrategy.None) {
+			logger.info("Not using cache");
 		} else {
 			logger.warn("Unimplemented caching strategy: " + strategy);
 		}
@@ -155,9 +167,16 @@ public class KVServer implements IKVServer {
 			fileList.get(key).addToQueue(node);
 			logger.info("looks okay");
 
+			if (test) {
+				logger.debug("!!!!===wait===!!!!");
+				while (wait)
+					;
+			}
+			logger.debug("!!!!===DONE SERVER===!!!!");
+
 			while (fileList.get(key).peek() != null && fileList.get(key).peek()[1] == NodeOperation.READ.getVal()) {
 				try {
-					logger.info("file list1: " + fileList.get(key).peek());
+					logger.debug("file list1: " + fileList.get(key).peek());
 					readMap.get(key).acquire();
 					break;
 				} catch (Exception e) {
@@ -166,8 +185,8 @@ public class KVServer implements IKVServer {
 				}
 			}
 
-			logger.info("over here");
-			logger.info("cnt:" + readMap.get(key).availablePermits());
+			logger.debug("over here");
+			logger.debug("cnt:" + readMap.get(key).availablePermits());
 
 			// See if marked for deletion:
 			if (fileList.get(key).isDeleted()) {
@@ -178,7 +197,7 @@ public class KVServer implements IKVServer {
 			}
 
 			if (inCache(key)) {
-				logger.debug("Cache hit!");
+				logger.info("Cache hit!");
 				removeTopQueue(key);
 				readMap.get(key).release();
 				return cache.get(key);
@@ -187,26 +206,25 @@ public class KVServer implements IKVServer {
 			File file = new File(STORAGE_DIRECTORY + key);
 			StringBuilder fileContents = new StringBuilder((int) file.length());
 			String value;
-			logger.info("Gonna open the file now!");
+			logger.debug("Gonna open the file now!");
 			try (Scanner scanner = new Scanner(file)) {
-				logger.info("reading file!");
+				logger.debug("Reading key file!");
 				while (scanner.hasNextLine()) {
 					fileContents.append(scanner.nextLine() + System.lineSeparator());
 				}
-				logger.info("done read!");
+				
 				removeTopQueue(key);
 				readMap.get(key).release();
-
+				
 				String val = fileContents.toString().trim();
-				logger.info("Gonna put key in cache!");
-				cache.put(key, val);
-				logger.info("Value=" + val);
+				logger.debug("Value=" + val);
+				
+				insertCache(key, val);
 				return val;
 			} catch (Error e) {
 				removeTopQueue(key);
 				readMap.get(key).release();
 				logger.error(e);
-				logger.debug("OH NOOO");
 			}
 		}
 
@@ -221,13 +239,19 @@ public class KVServer implements IKVServer {
 		try {
 			fileList.putIfAbsent(key, new ConcurrentNode());
 			readMap.putIfAbsent(key, new Semaphore(MAX_READS));
-			cache.putIfAbsent(key, value);
 
 			NodeOperation op = value.equals("null") ? NodeOperation.DELETE : NodeOperation.WRITE;
 
 			// add thread to back of list for this key - add is thread safe
 			int[] node = { (int) Thread.currentThread().getId(), op.getVal() };
 			fileList.get(key).addToQueue(node);
+
+			if (test) {
+				logger.info("!!!!===wait===!!!!");
+				while (wait)
+					;
+			}
+			logger.info("!!!!===DONE SERVER===!!!!");
 
 			// wait (spin) until threads turn and no one is reading
 			// TODO: If a key gets deleted, I think fileList.get(key) would no longer work
@@ -261,7 +285,8 @@ public class KVServer implements IKVServer {
 
 							fileList.remove(key);
 							readMap.remove(key);
-							cache.remove(key);
+							if (cache != null)
+								cache.remove(key);
 
 							File file = new File(STORAGE_DIRECTORY + key);
 							file.delete();
@@ -269,7 +294,6 @@ public class KVServer implements IKVServer {
 					};
 					fileList.get(key).startPruning(pruneDelete);
 				}
-
 				// TODO: Do you have to return an error if the key DNE?
 			} else {
 				// Insert/replace the key
@@ -280,7 +304,7 @@ public class KVServer implements IKVServer {
 					fileList.get(key).setDeleted(false);
 				}
 				// TODO: Cancel the spinning pruning delete thread
-				cache.put(key, value);
+				insertCache(key, value);
 				try {
 					FileWriter myWriter = new FileWriter("storage/" + key);
 					myWriter.write(value);
@@ -335,6 +359,13 @@ public class KVServer implements IKVServer {
 		} catch (IOException e) {
 			logger.error("Error! " +
 					"Unable to close socket on port: " + port, e);
+		}
+	}
+
+	private void insertCache(String key, String value) {
+		if (cache != null) {
+			logger.info("Gonna put key in cache!");
+			cache.put(key, value);
 		}
 	}
 
