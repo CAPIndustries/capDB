@@ -12,6 +12,8 @@ import shared.messages.KVMessage;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 
+import exceptions.InvalidMessageException;
+
 /**
  * Represents a connection end point for a particular client that is
  * connected to the server. This class is responsible for message reception
@@ -85,8 +87,9 @@ public class ClientConnection implements Runnable {
 							KVMessage errorRes = new KVMessage(latestMsg.getKey(),
 									"Bad request! Unknown status",
 									StatusType.BAD_REQUEST);
-							sendMessage(errorRes);
 							sum += System.nanoTime() - start;
+							if (errorRes != null)
+								sendMessage(errorRes);
 							break;
 					}
 					/*
@@ -98,6 +101,8 @@ public class ClientConnection implements Runnable {
 							+ clientSocket.getInetAddress().getHostAddress() + ":"
 							+ clientSocket.getPort() + "> Error! Connection lost!");
 					isOpen = false;
+				} catch (InvalidMessageException ime) {
+					logger.error(ime);
 				}
 			}
 		} catch (IOException ioe) {
@@ -161,7 +166,7 @@ public class ClientConnection implements Runnable {
 		}
 	}
 
-	private KVMessage receiveMessage() throws IOException {
+	private KVMessage receiveMessage() throws InvalidMessageException, IOException {
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
 		byte[] bufferBytes = new byte[BUFFER_SIZE];
@@ -227,9 +232,17 @@ public class ClientConnection implements Runnable {
 		msgBytes = tmp;
 		logger.debug("make into kv message");
 		/* build final result */
-		KVMessage msg = new KVMessage(msgBytes);
+		KVMessage msg = null;
 
-		if (msg.getStatus() != StatusType.HEARTBEAT) {
+		try {
+			msg = new KVMessage(msgBytes);
+		} catch (InvalidMessageException e) {
+			logger.error("Unable to construct message!");
+			logger.error(e);
+			throw (e);
+		}
+
+		if (msg != null && msg.getStatus() != StatusType.HEARTBEAT) {
 			logger.info("<"
 					+ clientSocket.getInetAddress().getHostAddress() + ":"
 					+ clientSocket.getPort() + "> (RECEIVE): STATUS="

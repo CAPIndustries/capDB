@@ -22,6 +22,8 @@ import testing.helpers.GetRunnable;
 import testing.helpers.IResponseRunnable;
 import testing.helpers.PutRunnable;
 
+import exceptions.InvalidMessageException;
+
 public class ConcurrencyHardTest extends TestCase {
 
 	private final String STORAGE_DIRECTORY = "storage/";
@@ -154,12 +156,17 @@ public class ConcurrencyHardTest extends TestCase {
 		
 		i = 0;
 		IKVMessage[] expected = new KVMessage[NUM_CONNECTIONS];
-		expected[i++] = new KVMessage(KEY, VALUE, StatusType.PUT_SUCCESS);
-		expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
-		expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
-		expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
-		expected[i++] = new KVMessage(KEY, "null", StatusType.DELETE_SUCCESS);
-		expected[i++] = new KVMessage(KEY, null, StatusType.GET_ERROR);
+		try {
+			expected[i++] = new KVMessage(KEY, VALUE, StatusType.PUT_SUCCESS);
+			expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
+			expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
+			expected[i++] = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
+			expected[i++] = new KVMessage(KEY, "null", StatusType.DELETE_SUCCESS);
+			expected[i++] = new KVMessage(KEY, null, StatusType.GET_ERROR);
+		} catch (InvalidMessageException ime) {
+			ex = ime;
+		}
+		assertNull(ex);
 		assertTrue(i == NUM_CONNECTIONS);
 		
 		server.wait = true;

@@ -18,6 +18,8 @@ import shared.messages.KVMessage;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 
+import exceptions.InvalidMessageException;
+
 public class KVStore implements KVCommInterface {
 
 	private static final String PROMPT = "KVStore> ";
@@ -105,13 +107,12 @@ public class KVStore implements KVCommInterface {
 		sendMessage(msg, false);
 
 		// TODO: Figure out the problem with this:
-		if (test) Thread.sleep(2000);
+		// if (test) Thread.sleep(2000);
 
 		KVMessage res;
 
 		do {
 			res = receiveMessage(false);
-			logger.debug("Done put");
 			break;
 		} while (res.getStatus() != StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
 
@@ -131,7 +132,7 @@ public class KVStore implements KVCommInterface {
 		sendMessage(msg, false);
 		
 		// TODO: Figure out the problem with this:
-		if (test) Thread.sleep(2000);
+		// if (test) Thread.sleep(2000);
 
 		KVMessage res;
 
@@ -155,12 +156,17 @@ public class KVStore implements KVCommInterface {
 			public void run() {
 				if (getLastResponse() + HEARTBEAT_TRANSMISSION * (1 + missedHeartbeats) < System.currentTimeMillis()) {
 					byte msgBytes[] = { StatusType.HEARTBEAT.getVal() };
-					KVMessage msg = new KVMessage(msgBytes);
-
+					KVMessage msg;
+					KVMessage res;
+					
 					try {
+						msg = new KVMessage(msgBytes);
 						sendMessage(msg, true);
-						KVMessage res = receiveMessage(true);
+						res = receiveMessage(true);
 						setMissedHeartbeats(0);
+					} catch (InvalidMessageException e) {
+						logger.error("Unable to construct message!");
+						logger.error(e);
 					} catch (Exception e) {
 						setMissedHeartbeats(missedHeartbeats + 1);
 						if (missedHeartbeats > HEARTBEAT_RETRIES) {
@@ -227,7 +233,7 @@ public class KVStore implements KVCommInterface {
 		disconnect();
 	}
 
-	private synchronized KVMessage receiveMessage(boolean heartbeat) throws IOException, Exception {
+	public synchronized KVMessage receiveMessage(boolean heartbeat) throws IOException, InvalidMessageException, Exception {
 		if (!isRunning()) throw new IOException("Store is not running!");
 
 		int index = 0;
@@ -290,16 +296,17 @@ public class KVStore implements KVCommInterface {
 			System.arraycopy(bufferBytes, 0, tmp, msgBytes.length, index);
 		}
 
+		
 		msgBytes = tmp;
-
+		
 		/* build final result */
 		KVMessage msg = new KVMessage(msgBytes);
-
+		
 		if (!heartbeat) {
 			logger.info("RECEIVE: STATUS="
-					+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue());
+			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue());
 		}
-
+		
 		return msg;
 	}
 
