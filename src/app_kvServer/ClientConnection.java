@@ -131,7 +131,7 @@ public class ClientConnection implements Runnable {
 		}
 	}
 
-	private KVMessage putKV(String key, String value) {
+	private KVMessage putKV(String key, String value) throws InvalidMessageException {
 		logger.info("<"
 				+ clientSocket.getInetAddress().getHostAddress() + ":"
 				+ clientSocket.getPort() + "> (PUT): KEY=" + key + " VALUE=" + value);
@@ -139,7 +139,7 @@ public class ClientConnection implements Runnable {
 		return server.putKV(clientSocket.getPort(), key, value);
 	}
 
-	private KVMessage getKV(String key) {
+	private KVMessage getKV(String key) throws InvalidMessageException {
 		logger.info("<"
 				+ clientSocket.getInetAddress().getHostAddress() + ":"
 				+ clientSocket.getPort() + "> (GET): KEY=" + key);
