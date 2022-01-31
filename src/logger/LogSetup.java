@@ -26,17 +26,24 @@ public class LogSetup {
 	 * 		persistent logging information.
 	 * @throws IOException if the log destination could not be found.
 	 */
-	public LogSetup(String logdir, Level level) throws IOException {
+	public LogSetup(String logdir, Level level, boolean consolePrint) throws IOException {
 		this.logdir = logdir;
-		initialize(level);
+		initialize(level, consolePrint);
 	}
 
-	private void initialize(Level level) throws IOException {
+	public LogSetup(String logdir, Level level) throws IOException {
+		this.logdir = logdir;
+		initialize(level, true);
+	}
+
+	private void initialize(Level level, boolean consolePrint) throws IOException {
 		PatternLayout layout = new PatternLayout( "%d{ISO8601} %-5p [%t] %c: %m%n" );
 		FileAppender fileAppender = new FileAppender( layout, logdir, true );		
 	    
-	    ConsoleAppender consoleAppender = new ConsoleAppender(layout);
-		logger.addAppender(consoleAppender);
+		if (consolePrint) {
+			ConsoleAppender consoleAppender = new ConsoleAppender(layout);
+			logger.addAppender(consoleAppender);
+		}
 		logger.addAppender(fileAppender);
 		logger.setLevel(level);
 	}

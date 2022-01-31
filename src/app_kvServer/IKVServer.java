@@ -1,11 +1,29 @@
 package app_kvServer;
 
+import shared.messages.KVMessage;
+
 public interface IKVServer {
     public enum CacheStrategy {
         None,
         LRU,
         LFU,
         FIFO
+    };
+
+    public enum NodeOperation {
+        READ    (0),
+        WRITE   (1),
+        DELETE  (2);
+    
+        private final int val;
+    
+        NodeOperation(int val) {
+            this.val = val;
+        }
+    
+        public int getVal() {
+            return this.val;
+        }
     };
 
     /**
@@ -52,14 +70,14 @@ public interface IKVServer {
      * @throws Exception
      *      when key not in the key range of the server
      */
-    public String getKV(String key) throws Exception;
+    public KVMessage getKV(int clientPort, String key) throws Exception;
 
     /**
      * Put the key-value pair into storage
      * @throws Exception
      *      when key not in the key range of the server
      */
-    public void putKV(String key, String value) throws Exception;
+    public KVMessage putKV(int clientPort, String key, String value) throws Exception;
 
     /**
      * Clear the local cache of the server
