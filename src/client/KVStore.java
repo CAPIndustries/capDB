@@ -106,15 +106,17 @@ public class KVStore implements KVCommInterface {
 		long expectedTime = sentTime + RESPONSE_TIME;
 		sendMessage(msg, false);
 
-		// TODO: Figure out the problem with this:
-		// if (test) Thread.sleep(2000);
+		KVMessage res = null;
 
-		KVMessage res;
+		// while (true) {
+		// 	res = receiveMessage(false);
+		// 	if (System.currentTimeMillis() > expectedTime) break;
+		// 	if (res != null && res.getStatus() != StatusType.HEARTBEAT) break;
+		// }
 
 		do {
 			res = receiveMessage(false);
-			break;
-		} while (res.getStatus() != StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
+		} while (res.getStatus() == StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
 
 		logger.debug("build new res put");
 		if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
@@ -130,18 +132,20 @@ public class KVStore implements KVCommInterface {
 		long sentTime = System.currentTimeMillis();
 		long expectedTime = sentTime + RESPONSE_TIME;
 		sendMessage(msg, false);
-		
-		// TODO: Figure out the problem with this:
-		// if (test) Thread.sleep(2000);
 
-		KVMessage res;
+		KVMessage res = null;
+
+		// while (true) {
+		// 	res = receiveMessage(false);
+		// 	if (System.currentTimeMillis() > expectedTime) break;
+		// 	if (res != null && res.getStatus() != StatusType.HEARTBEAT) break;
+		// }
 
 		do {
 			res = receiveMessage(false);
-			break;
-		} while (res.getStatus() != StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
+		} while (res.getStatus() == StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
 
-		if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
+		if (res == null) {
 			res = new KVMessage(key, "Timed out after " + RESPONSE_TIME / 1000 + " seconds", StatusType.GET_ERROR);
 		}
 
@@ -230,7 +234,7 @@ public class KVStore implements KVCommInterface {
 	}
 
 	public synchronized void closeConnection() {
-		disconnect();
+		disconnect("Client closed connection");
 	}
 
 	public synchronized KVMessage receiveMessage(boolean heartbeat) throws IOException, InvalidMessageException, Exception {
