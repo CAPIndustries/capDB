@@ -17,6 +17,7 @@
 *.zip
 *.tar.gz
 *.rar
+*.gz
 
 # virtual machine crash logs, see http://www.java.com/en/download/help/error_hotspot.xml
 hs_err_pid*
@@ -24,6 +25,10 @@ hs_err_pid*
 # build artifacts
 bin/
 *.MF
+*.jar
+
+# don't ignore lib jars as we don't have a build system
+!libs/*.jar
 
 # storage files
 storage/
