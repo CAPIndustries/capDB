@@ -51,7 +51,7 @@ public class ZooKeeperWatcher implements Watcher {
                 try {
                     logger.info("Node data update");
                     byte[] dataBytes = caller._zooKeeper.getData(path,
-                            false, null);
+                            this, null);
                     String[] data = new String(dataBytes,
                             "UTF-8").split("~");
                     logger.info("Got:" + String.join("", data));
