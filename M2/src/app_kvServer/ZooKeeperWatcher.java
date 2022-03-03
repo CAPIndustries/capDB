@@ -47,13 +47,21 @@ public class ZooKeeperWatcher implements Watcher {
                             false, null);
                     String[] data = new String(dataBytes,
                             "UTF-8").split("~");
-                    logger.info("Got:" + data);
+                    logger.info("Got:" + String.join("", data));
+
                     switch (NodeEvent.valueOf(data[0])) {
                         case BOOT:
                             caller.bootServer();
                             break;
                         case METADATA:
                             caller.loadMetadata(data[1]);
+                            break;
+                        case SHUTDOWN:
+                            caller.shutdown();
+                            return;
+                        // Ignored events:
+                        case BOOT_COMPLETE:
+                        case METADATA_COMPLETE:
                             break;
                         default:
                             logger.error("Unrecognized node event:" + data[0]);
@@ -69,6 +77,7 @@ public class ZooKeeperWatcher implements Watcher {
         }
 
         try {
+            logger.info("Resetting watchers ...");
             // Since notifications are a one time thing, we must reset the watcher
             // Subscribe to both the parent and the node itself
             caller._zooKeeper.exists(caller._rootZnode, true);

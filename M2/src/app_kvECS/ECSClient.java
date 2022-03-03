@@ -1,9 +1,10 @@
 package app_kvECS;
 
 import java.util.Collections;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
 import java.util.ArrayList;
+import java.util.Map;
 import java.util.Collection;
 import java.util.Scanner;
 import java.util.Date;
@@ -49,7 +50,7 @@ public class ECSClient implements IECSClient {
     private BufferedReader stdin;
     private boolean running = false;
     Stack<String> available_servers = new Stack<String>();
-    HashMap<String, IECSNode> active_servers = new HashMap<String, IECSNode>();
+    HashMap<String, ECSNode> active_servers = new HashMap<String, ECSNode>();
 
     private int zkPort;
     public ZooKeeper _zooKeeper = null;
@@ -229,9 +230,20 @@ public class ECSClient implements IECSClient {
 
     @Override
     public boolean stop() {
-        // TODO
-        System.out.println("Stopping");
-        return false;
+        logger.info("Broadcasting shutdown event to all participating servers ...");
+        byte[] data = NodeEvent.SHUTDOWN.name().getBytes();
+        // Broadcast to all servers
+        try {
+            for (IECSNode node : active_servers.values()) {
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+                _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+            }
+            return true;
+        } catch (Exception e) {
+            logger.error("Error while shutting down");
+            logger.error(e.getMessage());
+            return false;
+        }
     }
 
     @Override
@@ -268,7 +280,7 @@ public class ECSClient implements IECSClient {
             BigInteger bi = new BigInteger(1, digest);
             String hash = String.format("%0" + (digest.length << 1) + "x", bi);
             String[] hashRange = { null, hash };
-            IECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
+            ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
                     Integer.parseInt(serverInfo[2]), zkPort, hashRange);
 
             if (!node.initServer()) {
@@ -326,6 +338,26 @@ public class ECSClient implements IECSClient {
     public IECSNode getNodeByKey(String Key) {
         // TODO
         return null;
+    }
+
+    public void sendMetadata() {
+        logger.info("Broadcasting metadata to all participating servers ...");
+        // Gather all server data
+        List<String> serverData = new ArrayList<>(Arrays.asList(NodeEvent.METADATA.name()));
+        for (ECSNode node : active_servers.values()) {
+            serverData.add(node.getMeta());
+        }
+        byte[] data = String.join("~", serverData).getBytes();
+        // Broadcast to all servers
+        try {
+            for (IECSNode node : active_servers.values()) {
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+                _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+            }
+        } catch (Exception e) {
+            logger.error("Error while broadcasting metadata");
+            logger.error(e.getMessage());
+        }
     }
 
     private void printHelp() {

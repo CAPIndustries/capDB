@@ -108,9 +108,18 @@ public class KVServer implements IKVServer {
 			logger.error("Could not not initialize ZooKeeper!");
 			_zooKeeper = null;
 		} else {
+			logger.info("Spinning until server boots ...");
 			// Keep spinning until signalled to start
-			while (status == Status.HALTED)
+			while (getStatus() == Status.HALTED)
 				;
+
+			logger.info("Stopped spinning");
+			if (getStatus() == Status.STARTED) {
+				logger.info("Attempting to run server ...");
+				run();
+			} else {
+				logger.info("Server already running ...");
+			}
 		}
 	}
 
@@ -416,7 +425,7 @@ public class KVServer implements IKVServer {
 			return;
 		}
 		if (serverSocket != null) {
-			logger.info("Server running");
+			logger.info("Server running ...");
 			setNodeData(NodeEvent.BOOT_COMPLETE.name());
 			while (getStatus() == Status.STARTED) {
 				try {
@@ -427,6 +436,8 @@ public class KVServer implements IKVServer {
 					logger.info("Connected to " + client.getInetAddress().getHostAddress() + ":"
 							+ client.getPort());
 				} catch (IOException e) {
+					if (getStatus() != Status.STARTED)
+						return;
 					logger.error("Error! " + "Unable to establish connection. \n", e);
 				}
 			}
@@ -554,18 +565,35 @@ public class KVServer implements IKVServer {
 
 	public void bootServer() {
 		if (getStatus() != Status.STARTED) {
+			logger.info("Booting server ...");
 			setStatus(Status.STARTED);
-			run();
+		} else {
+			logger.info("Server had previously booted!");
 		}
 	}
 
 	public void loadMetadata(String data) {
+		logger.info("Loading metadata ...");
 		String[] serverData = data.split(",");
 		for (String server : serverData) {
 			logger.debug("Server Data:" + server);
 			for (String subData : server.split(":")) {
 				logger.debug("Sub data:" + subData);
 			}
+		}
+		// Send an ACK of the metadata receival
+		setNodeData(NodeEvent.METADATA_COMPLETE);
+	}
+
+	public void shutdown() {
+		try {
+			logger.info("Shutting down server & ZooKeeper node ...");
+			close();
+			_zooKeeper.close();
+			logger.info("Shutdown ZooKeeper");
+		} catch (Exception e) {
+			logger.error("Error while shutting down server");
+			logger.error(e.getMessage());
 		}
 	}
 
@@ -581,11 +609,11 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	private Status getStatus() {
+	private synchronized Status getStatus() {
 		return this.status;
 	}
 
-	public void setStatus(Status run) {
+	public synchronized void setStatus(Status run) {
 		this.status = run;
 	}
 }

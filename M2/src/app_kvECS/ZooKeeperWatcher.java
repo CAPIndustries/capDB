@@ -54,14 +54,21 @@ public class ZooKeeperWatcher implements Watcher {
                             false, null);
                     String[] data = new String(dataBytes,
                             "UTF-8").split("~");
-                    logger.info("Got:" + data);
+                    logger.info("Got:" + String.join("", data));
                     switch (NodeEvent.valueOf(data[0])) {
                         case BOOT_COMPLETE:
                             // Send metadata
-                            logger.info("Boot complete!");
+                            logger.info("Sending metadata!");
+                            caller.sendMetadata();
+                            break;
+                        case METADATA_COMPLETE:
+                            // TODO: Here is where we can release the WRITE_LOCK or wtv
+                            logger.info("Metadata ACK!");
                             break;
                         // Skip the following events:
                         case BOOT:
+                        case METADATA:
+                        case SHUTDOWN:
                             break;
                         default:
                             logger.error("Unrecognized node event:" + data[0]);
@@ -86,6 +93,7 @@ public class ZooKeeperWatcher implements Watcher {
 
         // Subscribe once more
         try {
+            logger.info("Resetting watchers ...");
             caller._zooKeeper.exists(caller._rootZnode, true);
             String test = caller._rootZnode;
             List<String> servers = caller._zooKeeper.getChildren(caller._rootZnode,

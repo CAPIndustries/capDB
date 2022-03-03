@@ -68,7 +68,8 @@ public class ECSNode implements IECSNode {
     }
 
     // Return a string representing this node's data
-    public String embed() {
+    public String getMeta() {
+        // TODO: See if name is required
         return String.format("%s:%s:%s:%s:%s", name, host, port, hashRange[0], hashRange[1]);
     }
 
