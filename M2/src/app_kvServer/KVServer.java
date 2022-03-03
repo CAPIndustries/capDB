@@ -11,10 +11,15 @@ import java.io.FileWriter;
 import java.util.Date;
 import java.util.Scanner;
 import java.util.Map;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
 import java.text.SimpleDateFormat;
+
+import java.security.MessageDigest;
+
+import java.math.BigInteger;
 
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
@@ -30,12 +35,15 @@ import shared.messages.IKVMessage.StatusType;
 
 import app_kvServer.ConcurrentNode;
 import app_kvServer.ZooKeeperWatcher;
+
 import ecs.IECSNode.NodeEvent;
+import ecs.ECSNode;
+
 import exceptions.InvalidMessageException;
 
 public class KVServer implements IKVServer {
 
-	private static final String STORAGE_DIRECTORY = "storage/";
+	private static final String ROOT_STORAGE_DIRECTORY = "storage";
 	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.LRU;
 	private static final int START_CACHE_SIZE = 16;
 	private static final int MAX_READS = 100;
@@ -46,11 +54,14 @@ public class KVServer implements IKVServer {
 	private int port;
 	private int cacheSize;
 	public String name;
+	private String nameHash;
 	private int zkPort;
 	private CacheStrategy strategy;
 	private ServerSocket serverSocket;
 	private Status status = Status.HALTED;
-	private File storageDirectory = new File(STORAGE_DIRECTORY);
+	private String storageDirectory;
+	private HashMap<String, ECSNode> metadata = new HashMap<String, ECSNode>();
+	private String rawMetadata;
 
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode = "/servers";
@@ -91,6 +102,7 @@ public class KVServer implements IKVServer {
 		this.strategy = strategy;
 		this.name = name;
 		this.zkPort = zkPort;
+		this.storageDirectory = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, name);
 
 		if (strategy == CacheStrategy.LRU) {
 			cache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true) {
@@ -113,13 +125,8 @@ public class KVServer implements IKVServer {
 			while (getStatus() == Status.HALTED)
 				;
 
-			logger.info("Stopped spinning");
-			if (getStatus() == Status.STARTED) {
-				logger.info("Attempting to run server ...");
-				run();
-			} else {
-				logger.info("Server already running ...");
-			}
+			logger.info("Stopped spinning. Attempting to run server ...");
+			run();
 		}
 	}
 
@@ -160,14 +167,14 @@ public class KVServer implements IKVServer {
 
 	@Override
 	public synchronized boolean inStorage(String key) {
-		return new File(STORAGE_DIRECTORY + key).isFile();
+		return new File(storageDirectory + key).isFile();
 	}
 
 	@Override
 	public void clearStorage() {
 		logger.info("Clearing storage");
 		clearCache();
-		File[] allContents = storageDirectory.listFiles();
+		File[] allContents = new File(storageDirectory).listFiles();
 		logger.info("Deleting " + allContents.length + " records");
 		if (allContents != null) {
 			for (File file : allContents) {
@@ -244,7 +251,7 @@ public class KVServer implements IKVServer {
 					}
 					value = cache.get(key);
 				} else {
-					File file = new File(STORAGE_DIRECTORY + key);
+					File file = new File(storageDirectory + key);
 					StringBuilder fileContents = new StringBuilder((int) file.length());
 					logger.debug(clientPort + "> Gonna open the file now!");
 					try (Scanner scanner = new Scanner(file)) {
@@ -356,7 +363,7 @@ public class KVServer implements IKVServer {
 								cache.remove(key);
 							}
 
-							File file = new File(STORAGE_DIRECTORY + key);
+							File file = new File(storageDirectory + key);
 							file.delete();
 							logger.info(clientPort + "> " + key + " successfully pruned");
 						}
@@ -391,7 +398,7 @@ public class KVServer implements IKVServer {
 				}
 
 				insertCache(key, value);
-				FileWriter myWriter = new FileWriter(STORAGE_DIRECTORY + key);
+				FileWriter myWriter = new FileWriter(storageDirectory + key);
 				myWriter.write(value);
 				myWriter.close();
 				// Sleep for a bit to let data take effect
@@ -427,7 +434,7 @@ public class KVServer implements IKVServer {
 		if (serverSocket != null) {
 			logger.info("Server running ...");
 			setNodeData(NodeEvent.BOOT_COMPLETE.name());
-			while (getStatus() == Status.STARTED) {
+			while (getStatus() != Status.HALTED) {
 				try {
 					Socket client = serverSocket.accept();
 					ClientConnection connection = new ClientConnection(client, this);
@@ -534,7 +541,7 @@ public class KVServer implements IKVServer {
 		logger.info("Creating & initializing ZooKeeper node ...");
 		try {
 			_zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, new ZooKeeperWatcher(this));
-			byte[] data = "Created".getBytes();
+			byte[] data = NodeEvent.CREATED.name().getBytes();
 			logger.info("Creating node:" + String.format("%s/%s", _rootZnode, name));
 			_zooKeeper.create(String.format("%s/%s", _rootZnode, name), data, ZooDefs.Ids.OPEN_ACL_UNSAFE,
 					CreateMode.EPHEMERAL);
@@ -550,15 +557,22 @@ public class KVServer implements IKVServer {
 		logger.info("Initializing storage ...");
 
 		try {
-			logger.info("Checking for storage directory at " + storageDirectory.getCanonicalPath());
+			File rootStorageDirectory = new File(ROOT_STORAGE_DIRECTORY);
+			logger.info("Checking for root storage directory at " + rootStorageDirectory.getCanonicalPath());
+			// Ensure storage directory exists
+			if (!rootStorageDirectory.exists()) {
+				logger.info("Storage directory does not exist. Creating new directory ...");
+				rootStorageDirectory.mkdir();
+			}
+
+			File storageDirectory = new File(String.format("%s/%s", ROOT_STORAGE_DIRECTORY, name));
+			logger.info("Checking for server storage directory at " + storageDirectory.getCanonicalPath());
 			// Ensure storage directory exists
 			if (!storageDirectory.exists()) {
-				logger.info("Storage directory does not exist. Creating new directory.");
+				logger.info("Server storage directory does not exist. Creating new directory ...");
 				storageDirectory.mkdir();
 			}
-		} catch (
-
-		Exception e) {
+		} catch (Exception e) {
 			logger.error(e);
 		}
 	}
@@ -566,7 +580,7 @@ public class KVServer implements IKVServer {
 	public void bootServer() {
 		if (getStatus() != Status.STARTED) {
 			logger.info("Booting server ...");
-			setStatus(Status.STARTED);
+			setStatus(Status.STOPPED);
 		} else {
 			logger.info("Server had previously booted!");
 		}
@@ -574,15 +588,37 @@ public class KVServer implements IKVServer {
 
 	public void loadMetadata(String data) {
 		logger.info("Loading metadata ...");
+		rawMetadata = data;
 		String[] serverData = data.split(",");
 		for (String server : serverData) {
-			logger.debug("Server Data:" + server);
-			for (String subData : server.split(":")) {
-				logger.debug("Sub data:" + subData);
+			String[] serverInfo = server.split(":");
+
+			try {
+				String[] hashRange = { serverInfo[3], serverInfo[4] };
+				ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
+						Integer.parseInt(serverInfo[2]), zkPort, hashRange);
+				logger.info("Server info:" + node.getMeta());
+
+				// Remember this server's hash so we don't have to keep recalculating it
+				if (serverInfo[0].equals(name)) {
+					nameHash = serverInfo[4];
+				}
+
+				logger.info("Added:" + serverInfo[1] + ":" + serverInfo[2]);
+				metadata.put(serverInfo[4], node);
+			} catch (Exception e) {
+				logger.error("Error while parsing metadata info, calculating hash of position");
+				logger.error(e.getMessage());
+				return;
 			}
 		}
 		// Send an ACK of the metadata receival
-		setNodeData(NodeEvent.METADATA_COMPLETE);
+		setNodeData(NodeEvent.METADATA_COMPLETE.name());
+		moveData();
+	}
+
+	public String getMetadata() {
+		return rawMetadata;
 	}
 
 	public void shutdown() {
@@ -597,7 +633,7 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	public void setNodeData(String data) {
+	public synchronized void setNodeData(String data) {
 		try {
 			logger.info("Sending:" + data);
 			byte[] dataBytes = data.getBytes();
@@ -609,7 +645,51 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	private synchronized Status getStatus() {
+	public boolean inRange(String key) {
+		// Get hash of the key
+		String hash = "";
+		try {
+			MessageDigest md = MessageDigest.getInstance("MD5");
+			md.update(key.getBytes());
+			byte[] digest = md.digest();
+
+			BigInteger bi = new BigInteger(1, digest);
+			hash = String.format("%0" + (digest.length << 1) + "x", bi);
+		} catch (Exception e) {
+			logger.error("Error while trying to see if key " + key + " is in range");
+			logger.error(e.getMessage());
+			return false;
+		}
+
+		ECSNode serverNode = metadata.get(nameHash);
+		if (serverNode == null) {
+			logger.error("Server data is missing!");
+			return false;
+		}
+		// Ensure we have a valid hash range
+		if (serverNode.getNodeHashRange()[0] == null || serverNode.getNodeHashRange()[1] == null) {
+			logger.error("One/both range bounds are null. Cannot check if a key is in range!");
+			return false;
+		}
+		// Now, check if hash is within this node's hash ranges
+		// Have to compare if flipped as well (by virture of it being a circle ring)
+		return ((hash.compareTo(serverNode.getNodeHashRange()[0]) >= 0
+				&& hash.compareTo(serverNode.getNodeHashRange()[1]) <= 0)
+				// The following is if flipped, but less than 0xFFF (not wrapped around)...
+				// of if flipped, but greater than 0xFFF (wrapped around). Hence XNOR
+				|| (serverNode.getNodeHashRange()[0].compareTo(serverNode.getNodeHashRange()[1]) > 0
+						&& !(hash.compareTo(serverNode.getNodeHashRange()[1]) >= 0
+								^ hash.compareTo(serverNode.getNodeHashRange()[0]) > 0)));
+	}
+
+	private void moveData() {
+		// Move the data its responsible for INTO this server
+		setStatus(Status.LOCKED);
+		// This server is now ready
+		setStatus(Status.STARTED);
+	}
+
+	public synchronized Status getStatus() {
 		return this.status;
 	}
 

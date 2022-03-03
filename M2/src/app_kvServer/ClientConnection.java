@@ -8,6 +8,7 @@ import java.net.Socket;
 
 import org.apache.log4j.Logger;
 
+import app_kvServer.IKVServer.Status;
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
@@ -47,12 +48,43 @@ public class ClientConnection implements Runnable {
 		this.isOpen = true;
 	}
 
+	// A request is valid only if:
+	// 1. The server is OPEN for requests
+	// 2. The server is responsible for the requested key
+	// 3. A write request and server is in the middle of reallocating data
+
+	// TODO: Point #3 does not make sense since a GET OP should also not work if the
+	// data is moved (?). Or should we just respond with a 404?
+	private KVMessage validRequest(String key, boolean PUT_OP) {
+		KVMessage res = null;
+
+		try {
+			if (this.server.getStatus() == Status.STOPPED) {
+				res = new KVMessage(key, "Server is not running!", StatusType.SERVER_STOPPED);
+			} else if (PUT_OP && this.server.getStatus() == Status.LOCKED) {
+				res = new KVMessage(key,
+						"Server is not is currently blocked for write requests due to reallocation of data!",
+						StatusType.SERVER_WRITE_LOCK);
+			} else if (this.server.inRange(key)) {
+				String metadata = this.server.getMetadata();
+				res = new KVMessage(key, metadata, StatusType.SERVER_NOT_RESPONSIBLE);
+				// TODO: Reconnect to the right server with the metadata
+			}
+		} catch (Exception e) {
+			logger.error("Error while composing message");
+			logger.error(e.getMessage());
+		}
+
+		return res;
+	}
+
 	/**
 	 * Initializes and starts the client connection.
 	 * Loops until the connection is closed or aborted by the client.
 	 */
 	public void run() {
 		Long sum = (long) 0;
+
 		try {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
@@ -64,12 +96,18 @@ public class ClientConnection implements Runnable {
 						return;
 					switch (latestMsg.getStatus()) {
 						case PUT:
-							KVMessage putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
+							KVMessage putRes = validRequest(latestMsg.getKey(), true);
+							if (putRes == null) {
+								putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
+							}
 							sendMessage(putRes);
 							sum += System.nanoTime() - start;
 							break;
 						case GET:
-							KVMessage getRes = getKV(latestMsg.getKey());
+							KVMessage getRes = validRequest(latestMsg.getKey(), false);
+							if (getRes == null) {
+								getRes = getKV(latestMsg.getKey());
+							}
 							sendMessage(getRes);
 							sum += System.nanoTime() - start;
 							break;

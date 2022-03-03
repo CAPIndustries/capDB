@@ -9,7 +9,8 @@ import java.util.Collection;
 import java.util.Scanner;
 import java.util.Date;
 import java.util.Stack;
-import java.util.HashMap;
+import java.util.TreeMap;
+import java.util.concurrent.TimeUnit;
 
 import java.text.SimpleDateFormat;
 
@@ -49,8 +50,9 @@ public class ECSClient implements IECSClient {
 
     private BufferedReader stdin;
     private boolean running = false;
-    Stack<String> available_servers = new Stack<String>();
-    HashMap<String, ECSNode> active_servers = new HashMap<String, ECSNode>();
+    private int booted_servers = 0;
+    private Stack<String> available_servers = new Stack<String>();
+    private TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
 
     private int zkPort;
     public ZooKeeper _zooKeeper = null;
@@ -216,8 +218,19 @@ public class ECSClient implements IECSClient {
     public boolean start() {
         try {
             for (IECSNode node : active_servers.values()) {
-                byte[] data = NodeEvent.BOOT.name().getBytes();
                 String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+
+                // Only send a 'BOOT' to the servers that arent yet booted
+                byte[] recvData = _zooKeeper.getData(path,
+                        false, null);
+                NodeEvent status = NodeEvent.valueOf(new String(recvData,
+                        "UTF-8").split("~")[0]);
+
+                if (status.ordinal() > NodeEvent.BOOT_COMPLETE.ordinal()) {
+                    continue;
+                }
+
+                byte[] data = NodeEvent.BOOT.name().getBytes();
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
             }
         } catch (Exception e) {
@@ -263,7 +276,6 @@ public class ECSClient implements IECSClient {
 
     @Override
     public IECSNode addNode(String cacheStrategy, int cacheSize) {
-        // TODO
         logger.info("Attempting to add a node ...");
         try {
             if (available_servers.size() == 0) {
@@ -279,6 +291,8 @@ public class ECSClient implements IECSClient {
 
             BigInteger bi = new BigInteger(1, digest);
             String hash = String.format("%0" + (digest.length << 1) + "x", bi);
+            // The lower bound will be NULL for now, but will fix it later once we're aware
+            // of any other potential servers (cf. sendMetadata)
             String[] hashRange = { null, hash };
             ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
                     Integer.parseInt(serverInfo[2]), zkPort, hashRange);
@@ -336,22 +350,68 @@ public class ECSClient implements IECSClient {
 
     @Override
     public IECSNode getNodeByKey(String Key) {
-        // TODO
-        return null;
+        try {
+            if (available_servers.size() == 0) {
+                return null;
+            }
+
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            md.update(Key.getBytes());
+            byte[] digest = md.digest();
+
+            BigInteger bi = new BigInteger(1, digest);
+            String hash = String.format("%0" + (digest.length << 1) + "x", bi);
+
+            return active_servers.get(hash);
+        } catch (Exception e) {
+            logger.error(e);
+            e.printStackTrace();
+            return null;
+        }
     }
 
     public void sendMetadata() {
+        // Only broadcast the Metadata once all participating servers are ready
+        // Since otherwise, some requests might not be served due to servers still
+        // booting up. Data race....
+        booted_servers += 1;
+        logger.info("Booted up server count: " + booted_servers + " of " + active_servers.size());
+        if (booted_servers != active_servers.size()) {
+            return;
+        }
+        try {
+            // Sleep for a little to let the last participating server process a little
+            // TimeUnit.MILLISECONDS.sleep(500);
+        } catch (Exception e) {
+            logger.error("Sleep error!");
+        }
+
         logger.info("Broadcasting metadata to all participating servers ...");
-        // Gather all server data
+        // Update lower bounds now that all the participating servers have booted
+        // Then, gather all server data
         List<String> serverData = new ArrayList<>(Arrays.asList(NodeEvent.METADATA.name()));
-        for (ECSNode node : active_servers.values()) {
+        for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
+            String key = entry.getKey();
+            ECSNode node = entry.getValue();
+            // Get the previous hash (or wrap around!)
+            Map.Entry<String, ECSNode> prev = active_servers.lowerEntry(key);
+            // Wrap around or if only participating server:
+            if (prev == null) {
+                prev = active_servers.lastEntry();
+            }
+            String[] hashRange = { prev.getKey(), key };
+            node.setNodeHashRange(hashRange);
+            // Update our internal info
+            active_servers.put(key, node);
             serverData.add(node.getMeta());
         }
         byte[] data = String.join("~", serverData).getBytes();
+        logger.info("Sending:" + String.join("~", serverData));
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
                 String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+                logger.info("\tTo " + path);
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
             }
         } catch (Exception e) {

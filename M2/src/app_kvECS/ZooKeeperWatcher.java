@@ -80,7 +80,6 @@ public class ZooKeeperWatcher implements Watcher {
                 break;
             case NodeChildrenChanged:
                 logger.info("Child node change");
-                // TODO: Recalc metadata and send to all nodes
                 break;
             case NodeCreated:
                 // TODO: Delete if not using later...

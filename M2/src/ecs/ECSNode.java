@@ -32,7 +32,7 @@ public class ECSNode implements IECSNode {
         this.host = host;
         this.port = port;
         this.zkPort = zkPort;
-        this.hashRange = hashRange;
+        this.hashRange = hashRange.clone();
     }
 
     public boolean initServer() {
@@ -99,6 +99,10 @@ public class ECSNode implements IECSNode {
 
     public int getZKPort() {
         return zkPort;
+    }
+
+    public void setNodeHashRange(String[] hashRange) {
+        this.hashRange = hashRange.clone();
     }
 
     /**
