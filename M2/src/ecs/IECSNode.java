@@ -3,7 +3,7 @@ package ecs;
 public interface IECSNode {
 
     public enum NodeEvent {
-        SHUTDOWN, CREATED, BOOT, BOOT_COMPLETE, METADATA, METADATA_COMPLETE
+        SHUTDOWN, BOOT, BOOT_COMPLETE, METADATA, METADATA_COMPLETE, START, MOVE, MOVE_COMPLETE
     };
 
     /**

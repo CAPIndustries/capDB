@@ -4,7 +4,7 @@ import shared.messages.KVMessage;
 
 public interface IKVServer {
     public enum Status {
-        HALTED, STOPPED, LOCKED, STARTED
+        STOPPED, LOCKED, STARTED
     };
 
     public enum CacheStrategy {

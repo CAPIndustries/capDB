@@ -17,8 +17,12 @@ public interface IKVMessage {
 		SERVER_STOPPED((byte) 11), /* Server is stopped, no requests are processed */
 		SERVER_WRITE_LOCK((byte) 12), /* Server locked for write, only get possible */
 		SERVER_NOT_RESPONSIBLE(
-				(byte) 13); /*
+				(byte) 13), /*
 							 * Request not successful, server not responsible for key
+							 */
+		INITIAL_METADATA(
+				(byte) 14); /*
+							 * Upon successful client connection, send metadata to inform client
 							 */
 
 		private final byte val;
@@ -39,17 +43,20 @@ public interface IKVMessage {
 	}
 
 	/**
-	 * @return the key that is associated with this message, null if not key is associated.
+	 * @return the key that is associated with this message, null if not key is
+	 *         associated.
 	 */
 	public String getKey();
 
 	/**
-	 * @return the value that is associated with this message, null if not value is associated.
+	 * @return the value that is associated with this message, null if not value is
+	 *         associated.
 	 */
 	public String getValue();
 
 	/**
-	 * @return a status string that is used to identify request types, response types and error
+	 * @return a status string that is used to identify request types, response
+	 *         types and error
 	 *         types associated to the message.
 	 */
 	public StatusType getStatus();

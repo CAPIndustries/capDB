@@ -8,10 +8,14 @@ import java.io.IOException;
 import java.io.File;
 import java.io.FileWriter;
 
+import java.nio.file.Files;
+import java.nio.file.StandardCopyOption;
+
 import java.util.Date;
 import java.util.Scanner;
 import java.util.Map;
-import java.util.HashMap;
+import java.util.TreeMap;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -58,10 +62,11 @@ public class KVServer implements IKVServer {
 	private int zkPort;
 	private CacheStrategy strategy;
 	private ServerSocket serverSocket;
-	private Status status = Status.HALTED;
+	private Status status = Status.STOPPED;
 	private String storageDirectory;
-	private HashMap<String, ECSNode> metadata = new HashMap<String, ECSNode>();
+	private TreeMap<String, ECSNode> metadata = new TreeMap<String, ECSNode>();
 	private String rawMetadata;
+	private ArrayList<String> movedItems = new ArrayList<String>();;
 
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode = "/servers";
@@ -116,13 +121,17 @@ public class KVServer implements IKVServer {
 			logger.warn("Unimplemented caching strategy: " + strategy);
 		}
 
+		logger.info("Booting server ...");
 		if (!initializeZooKeeper()) {
 			logger.error("Could not not initialize ZooKeeper!");
 			_zooKeeper = null;
 		} else {
+			initializeStorage();
+			// Let ECS know that we've booted
+			setNodeData(NodeEvent.BOOT_COMPLETE.name());
 			logger.info("Spinning until server boots ...");
 			// Keep spinning until signalled to start
-			while (getStatus() == Status.HALTED)
+			while (getStatus() == Status.STOPPED)
 				;
 
 			logger.info("Stopped spinning. Attempting to run server ...");
@@ -433,8 +442,7 @@ public class KVServer implements IKVServer {
 		}
 		if (serverSocket != null) {
 			logger.info("Server running ...");
-			setNodeData(NodeEvent.BOOT_COMPLETE.name());
-			while (getStatus() != Status.HALTED) {
+			while (getStatus() != Status.STOPPED) {
 				try {
 					Socket client = serverSocket.accept();
 					ClientConnection connection = new ClientConnection(client, this);
@@ -449,6 +457,7 @@ public class KVServer implements IKVServer {
 				}
 			}
 		}
+		serverSocket = null;
 		logger.info("Server stopped.");
 	}
 
@@ -461,9 +470,12 @@ public class KVServer implements IKVServer {
 	@Override
 	public void close() {
 		logger.info("Closing server ...");
-		setStatus(Status.HALTED);
+		setStatus(Status.STOPPED);
 		try {
-			serverSocket.close();
+			if (serverSocket != null) {
+				serverSocket.close();
+				serverSocket = null;
+			}
 			logger.info("Server closed");
 		} catch (IOException e) {
 			logger.error("Error! " + "Unable to close socket on port: " + port, e);
@@ -486,9 +498,6 @@ public class KVServer implements IKVServer {
 	 */
 	public static void main(String[] args) {
 		try {
-			System.out.println("yo!!");
-			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-			new LogSetup("logs/server_" + fmt.format(new Date()) + ".log", Level.ALL, true);
 			if (args.length != 3) {
 				logger.error("Error! Invalid number of arguments!");
 				logger.error("Usage: Server <name> <port> <ZooKeeper Port>!");
@@ -497,6 +506,8 @@ public class KVServer implements IKVServer {
 				String name = args[0];
 				int port = Integer.parseInt(args[1]);
 				int zkPort = Integer.parseInt(args[2]);
+				SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
+				new LogSetup("logs/" + name + "_" + fmt.format(new Date()) + ".log", Level.ALL, true);
 				// No need to use the run method here since the contructor is supposed to
 				// start the server on its own
 				// TODO: Allow passing additional arguments from the command line:
@@ -521,7 +532,6 @@ public class KVServer implements IKVServer {
 
 	private boolean initializeServer() {
 		logger.info("Initializing server ...");
-		initializeStorage();
 
 		try {
 			serverSocket = new ServerSocket(port);
@@ -541,7 +551,7 @@ public class KVServer implements IKVServer {
 		logger.info("Creating & initializing ZooKeeper node ...");
 		try {
 			_zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, new ZooKeeperWatcher(this));
-			byte[] data = NodeEvent.CREATED.name().getBytes();
+			byte[] data = NodeEvent.BOOT.name().getBytes();
 			logger.info("Creating node:" + String.format("%s/%s", _rootZnode, name));
 			_zooKeeper.create(String.format("%s/%s", _rootZnode, name), data, ZooDefs.Ids.OPEN_ACL_UNSAFE,
 					CreateMode.EPHEMERAL);
@@ -577,18 +587,10 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	public void bootServer() {
-		if (getStatus() != Status.STARTED) {
-			logger.info("Booting server ...");
-			setStatus(Status.STOPPED);
-		} else {
-			logger.info("Server had previously booted!");
-		}
-	}
-
 	public void loadMetadata(String data) {
 		logger.info("Loading metadata ...");
 		rawMetadata = data;
+		logger.info("Raw metadata:" + rawMetadata);
 		String[] serverData = data.split(",");
 		for (String server : serverData) {
 			String[] serverInfo = server.split(":");
@@ -614,7 +616,10 @@ public class KVServer implements IKVServer {
 		}
 		// Send an ACK of the metadata receival
 		setNodeData(NodeEvent.METADATA_COMPLETE.name());
-		moveData();
+		// Check if server is ready:
+		if (movedItems.size() > 0) {
+			moveComplete();
+		}
 	}
 
 	public String getMetadata() {
@@ -645,6 +650,20 @@ public class KVServer implements IKVServer {
 		}
 	}
 
+	private boolean rangeFunction(String[] range, String hash) {
+		// Have to compare if flipped as well (by virture of it being a circle ring)
+		if (range[0].compareTo(range[1]) == 0)
+			return true;
+
+		return ((hash.compareTo(range[0]) >= 0
+				&& hash.compareTo(range[1]) <= 0)
+				// The following is if flipped, but less than 0xFFF (not wrapped around)...
+				// of if flipped, but greater than 0xFFF (wrapped around). Hence XNOR
+				|| (range[0].compareTo(range[1]) > 0
+						&& !(hash.compareTo(range[1]) >= 0
+								^ hash.compareTo(range[0]) > 0)));
+	}
+
 	public boolean inRange(String key) {
 		// Get hash of the key
 		String hash = "";
@@ -672,21 +691,62 @@ public class KVServer implements IKVServer {
 			return false;
 		}
 		// Now, check if hash is within this node's hash ranges
-		// Have to compare if flipped as well (by virture of it being a circle ring)
-		return ((hash.compareTo(serverNode.getNodeHashRange()[0]) >= 0
-				&& hash.compareTo(serverNode.getNodeHashRange()[1]) <= 0)
-				// The following is if flipped, but less than 0xFFF (not wrapped around)...
-				// of if flipped, but greater than 0xFFF (wrapped around). Hence XNOR
-				|| (serverNode.getNodeHashRange()[0].compareTo(serverNode.getNodeHashRange()[1]) > 0
-						&& !(hash.compareTo(serverNode.getNodeHashRange()[1]) >= 0
-								^ hash.compareTo(serverNode.getNodeHashRange()[0]) > 0)));
+
+		return rangeFunction(serverNode.getNodeHashRange(), hash);
 	}
 
-	private void moveData() {
-		// Move the data its responsible for INTO this server
+	public void moveData(String[] range, String serverName) {
+		// Move the data to the destination server, but lock this server first
 		setStatus(Status.LOCKED);
-		// This server is now ready
-		setStatus(Status.STARTED);
+		logger.info("Locking server & moving data");
+
+		File dir = new File(this.storageDirectory);
+		String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, serverName);
+		File[] directoryListing = dir.listFiles();
+		for (File item : directoryListing) {
+			try {
+				logger.info("File name:" + item.getName());
+				MessageDigest md = MessageDigest.getInstance("MD5");
+				md.update(item.getName().getBytes());
+				byte[] digest = md.digest();
+
+				BigInteger bi = new BigInteger(1, digest);
+				String hash = String.format("%0" + (digest.length << 1) + "x", bi);
+				if (rangeFunction(range, hash)) {
+					logger.info("Going to move:" + item.getName());
+					movedItems.add(item.getName());
+					Files.copy(item.toPath(),
+							new File(dest + item.getName()).toPath(),
+							StandardCopyOption.REPLACE_EXISTING);
+				}
+			} catch (Exception e) {
+				logger.error("Error while trying to move keys");
+				logger.error(e.getMessage());
+			}
+		}
+
+		setNodeData(NodeEvent.MOVE_COMPLETE.name());
+	}
+
+	public void moveComplete() {
+		logger.info("Completing the move by deleting the items ...");
+
+		for (String item : movedItems) {
+			try {
+				logger.info("Deleting" + item);
+				File itemFile = new File(this.storageDirectory + item);
+				itemFile.delete();
+			} catch (Exception e) {
+				logger.error("Error while trying to delete file");
+				logger.error(e.getMessage());
+			}
+		}
+
+		logger.info("Deletion completed");
+		movedItems.clear();
+		if (getStatus() == Status.LOCKED) {
+			setStatus(Status.STARTED);
+		}
 	}
 
 	public synchronized Status getStatus() {

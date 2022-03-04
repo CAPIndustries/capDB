@@ -36,3 +36,6 @@ storage/
 # misc
 commands
 TODO
+
+# temp files
+*.nfs*

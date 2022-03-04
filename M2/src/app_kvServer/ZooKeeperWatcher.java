@@ -7,6 +7,7 @@ import org.apache.zookeeper.Watcher.Event.KeeperState;
 
 import org.apache.log4j.Logger;
 
+import app_kvServer.IKVServer.Status;
 import ecs.IECSNode.NodeEvent;
 import logger.LogSetup;
 
@@ -39,7 +40,11 @@ public class ZooKeeperWatcher implements Watcher {
 
         switch (eventType) {
             case None:
-                logger.info("Successfully connected to ZK server!");
+                if (keeperState == KeeperState.Closed) {
+                    return;
+                } else {
+                    logger.info("Successfully connected to ZK server!");
+                }
                 break;
             case NodeDataChanged:
                 try {
@@ -50,18 +55,25 @@ public class ZooKeeperWatcher implements Watcher {
                     logger.info("Got:" + String.join("", data));
 
                     switch (NodeEvent.valueOf(data[0])) {
-                        case BOOT:
-                            caller.bootServer();
-                            break;
                         case METADATA:
                             caller.loadMetadata(data[1]);
                             break;
+                        case START:
+                            caller.setStatus(Status.STARTED);
+                            return;
                         case SHUTDOWN:
                             caller.shutdown();
                             return;
+                        case MOVE:
+                            String[] moveData = data[1].split(",");
+                            String[] range = { moveData[0], moveData[1] };
+                            caller.moveData(range, moveData[2]);
+                            return;
                         // Ignored events:
+                        case BOOT:
                         case BOOT_COMPLETE:
                         case METADATA_COMPLETE:
+                        case MOVE_COMPLETE:
                             break;
                         default:
                             logger.error("Unrecognized node event:" + data[0]);
@@ -73,7 +85,7 @@ public class ZooKeeperWatcher implements Watcher {
                 break;
             case NodeDeleted:
                 logger.info("node " + path + " Deleted");
-                break;
+                return;
         }
 
         try {

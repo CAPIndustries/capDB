@@ -3,14 +3,21 @@ package client;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+
 import java.net.Socket;
 import java.net.UnknownHostException;
 import java.net.SocketTimeoutException;
 
+import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+
+import java.security.MessageDigest;
+
+import java.math.BigInteger;
 
 import org.apache.log4j.Logger;
 
@@ -19,6 +26,8 @@ import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 
 import exceptions.InvalidMessageException;
+
+import ecs.ECSNode;
 
 public class KVStore implements KVCommInterface {
 
@@ -32,7 +41,7 @@ public class KVStore implements KVCommInterface {
 	private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
 	private static final char LINE_FEED = 0x0A;
 	private static final char RETURN = 0x0D;
-	
+
 	public volatile static boolean test = false;
 	private static Logger logger = Logger.getRootLogger();
 	private boolean running;
@@ -45,6 +54,8 @@ public class KVStore implements KVCommInterface {
 	ScheduledFuture<?> heartbeatThread;
 	private int missedHeartbeats = 0;
 	public int output_port;
+	private TreeMap<String, ECSNode> metadata = null;
+	private boolean reconnect = false;
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -59,7 +70,9 @@ public class KVStore implements KVCommInterface {
 
 	@Override
 	public void connect() throws UnknownHostException, IOException {
-		System.out.println(PROMPT + "Trying to connect ...");
+		if (!reconnect) {
+			System.out.println(PROMPT + "Trying to connect ...");
+		}
 		logger.info("Trying to connect ...");
 
 		clientSocket = new Socket(address, port);
@@ -67,22 +80,71 @@ public class KVStore implements KVCommInterface {
 		output = clientSocket.getOutputStream();
 		input = clientSocket.getInputStream();
 		output_port = clientSocket.getLocalPort();
-		setRunning(true);
 		setLastResponse(System.currentTimeMillis());
+		setRunning(true);
+		logger.info("Connected");
+
+		// Get initial metadata
+		metadata = new TreeMap<String, ECSNode>();
+		long sentTime = System.currentTimeMillis();
+		long expectedTime = sentTime + RESPONSE_TIME;
+		KVMessage res = null;
+		logger.info("Trying to obtain metadata ...");
+		try {
+			do {
+				res = receiveMessage(false);
+			} while (res.getStatus() == StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
+		} catch (Exception e) {
+			logger.error("Error while receiving metadata message");
+			logger.error(e.getMessage());
+		}
+
+		if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
+			logger.error("Unable to obtain metadata!");
+			return;
+		}
+		buildMetadata(res.getValue());
 
 		// TODO: Try and figure out what the problem is:
 		if (!test) {
 			scheduleHeartbeat();
 		}
 
-		System.out.println(PROMPT + "Connected!");
+		if (!reconnect) {
+			System.out.println(PROMPT + "Connected!");
+		}
 		logger.info("Connection established to " + address + " on port " + port);
+	}
+
+	private void buildMetadata(String data) {
+		logger.info("Received metadata. Rebuilding ...");
+		String[] serverData = data.split(",");
+		for (String server : serverData) {
+			String[] serverInfo = server.split(":");
+
+			try {
+				String[] hashRange = { serverInfo[3], serverInfo[4] };
+				ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
+						Integer.parseInt(serverInfo[2]), hashRange);
+				logger.info("Server info:" + node.getMeta());
+
+				logger.info("Added:" + serverInfo[1] + ":" + serverInfo[2]);
+				metadata.put(serverInfo[4], node);
+			} catch (Exception e) {
+				logger.error("Error while parsing metadata info, calculating hash of position");
+				logger.error(e.getMessage());
+				return;
+			}
+		}
+		logger.info("Rebuilt metadata");
 	}
 
 	@Override
 	public void disconnect() {
 		try {
-			System.out.println(PROMPT + "Trying to disconnect ...");
+			if (!reconnect) {
+				System.out.println(PROMPT + "Trying to disconnect ...");
+			}
 			logger.info("Trying to disconnect ...");
 			setRunning(false);
 			if (clientSocket != null) {
@@ -90,7 +152,9 @@ public class KVStore implements KVCommInterface {
 				output.close();
 				clientSocket.close();
 				clientSocket = null;
-				System.out.println(PROMPT + "Connection closed!");
+				if (!reconnect) {
+					System.out.println(PROMPT + "Connection closed!");
+				}
 				logger.info("Connection closed!");
 			}
 		} catch (IOException ioe) {
@@ -109,9 +173,9 @@ public class KVStore implements KVCommInterface {
 		KVMessage res = null;
 
 		// while (true) {
-		// 	res = receiveMessage(false);
-		// 	if (System.currentTimeMillis() > expectedTime) break;
-		// 	if (res != null && res.getStatus() != StatusType.HEARTBEAT) break;
+		// res = receiveMessage(false);
+		// if (System.currentTimeMillis() > expectedTime) break;
+		// if (res != null && res.getStatus() != StatusType.HEARTBEAT) break;
 		// }
 
 		do {
@@ -121,6 +185,14 @@ public class KVStore implements KVCommInterface {
 		logger.debug("build new res put");
 		if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
 			res = new KVMessage(key, "Timed out after " + RESPONSE_TIME / 1000 + " seconds", StatusType.PUT_ERROR);
+		} else {
+			if (res.getStatus() == StatusType.SERVER_NOT_RESPONSIBLE) {
+				logger.info("Got a server unresponsible for put!");
+				if (reconnect(res.getValue(), key)) {
+					// Try it again:
+					return put(key, value);
+				}
+			}
 		}
 
 		return res;
@@ -136,9 +208,9 @@ public class KVStore implements KVCommInterface {
 		KVMessage res = null;
 
 		// while (true) {
-		// 	res = receiveMessage(false);
-		// 	if (System.currentTimeMillis() > expectedTime) break;
-		// 	if (res != null && res.getStatus() != StatusType.HEARTBEAT) break;
+		// res = receiveMessage(false);
+		// if (System.currentTimeMillis() > expectedTime) break;
+		// if (res != null && res.getStatus() != StatusType.HEARTBEAT) break;
 		// }
 
 		do {
@@ -147,9 +219,56 @@ public class KVStore implements KVCommInterface {
 
 		if (res == null) {
 			res = new KVMessage(key, "Timed out after " + RESPONSE_TIME / 1000 + " seconds", StatusType.GET_ERROR);
+		} else {
+			if (res.getStatus() == StatusType.SERVER_NOT_RESPONSIBLE) {
+				logger.info("Got a server unresponsible for get!");
+				if (reconnect(res.getValue(), key)) {
+					// Try it again:
+					return get(key);
+				}
+			}
 		}
 
 		return res;
+	}
+
+	private boolean reconnect(String data, String key) {
+		reconnect = true;
+		logger.info("Reconnecting ...");
+		// Update our version of the metadata
+		buildMetadata(data);
+
+		// Find the right server to connect to
+		try {
+			MessageDigest md = MessageDigest.getInstance("MD5");
+			md.update(key.getBytes());
+			byte[] digest = md.digest();
+
+			BigInteger bi = new BigInteger(1, digest);
+			String hash = String.format("%0" + (digest.length << 1) + "x", bi);
+
+			// Our consistent hashing approach is clockwise. Hence must find the HIGHER hash
+			// bound
+			Map.Entry<String, ECSNode> node = metadata.higherEntry(hash);
+			if (node == null) {
+				node = metadata.firstEntry();
+			}
+			// TODO: Fix if no servers are running...
+			logger.debug("Switch to:" + node.getValue().getNodeHost() + node.getValue().getNodePort());
+
+			// Reconnect to the suggested server
+			this.address = node.getValue().getNodeHost();
+			this.port = node.getValue().getNodePort();
+			disconnect();
+			connect();
+
+			reconnect = false;
+			return true;
+		} catch (Exception e) {
+			logger.error("Error while trying to obtain correct server");
+			logger.error(e.getMessage());
+			return false;
+		}
 	}
 
 	private void scheduleHeartbeat() {
@@ -162,7 +281,7 @@ public class KVStore implements KVCommInterface {
 					byte msgBytes[] = { StatusType.HEARTBEAT.getVal() };
 					KVMessage msg;
 					KVMessage res;
-					
+
 					try {
 						msg = new KVMessage(msgBytes);
 						sendMessage(msg, true);
@@ -237,8 +356,10 @@ public class KVStore implements KVCommInterface {
 		disconnect("Client closed connection");
 	}
 
-	public synchronized KVMessage receiveMessage(boolean heartbeat) throws IOException, InvalidMessageException, Exception {
-		if (!isRunning()) throw new IOException("Store is not running!");
+	public synchronized KVMessage receiveMessage(boolean heartbeat)
+			throws IOException, InvalidMessageException, Exception {
+		if (!isRunning())
+			throw new IOException("Store is not running!");
 
 		int index = 0;
 		byte[] msgBytes = null, tmp = null;
@@ -248,7 +369,7 @@ public class KVStore implements KVCommInterface {
 		byte read = (byte) input.read();
 		boolean reading = true;
 
-		logger.debug("First read:" + read);
+		// logger.debug("First read:" + read);
 
 		if (read == -1) {
 			throw new Exception("Reached end of stream!");
@@ -289,7 +410,7 @@ public class KVStore implements KVCommInterface {
 			read = (byte) input.read();
 		}
 
-		logger.debug("Last read:" + read);
+		// logger.debug("Last read:" + read);
 
 		if (msgBytes == null) {
 			tmp = new byte[index];
@@ -300,22 +421,22 @@ public class KVStore implements KVCommInterface {
 			System.arraycopy(bufferBytes, 0, tmp, msgBytes.length, index);
 		}
 
-		
 		msgBytes = tmp;
-		
+
 		/* build final result */
 		KVMessage msg = new KVMessage(msgBytes);
-		
+
 		if (!heartbeat) {
 			logger.info("RECEIVE: STATUS="
-			+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue());
+					+ msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue());
 		}
-		
+
 		return msg;
 	}
 
 	public synchronized void sendMessage(KVMessage msg, boolean heartbeat) throws IOException {
-		if (!isRunning()) throw new IOException("Store is not running!");
+		if (!isRunning())
+			throw new IOException("Store is not running!");
 
 		byte[] msgBytes = msg.getMsgBytes();
 		output.write(msgBytes, 0, msgBytes.length);

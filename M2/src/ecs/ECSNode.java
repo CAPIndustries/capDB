@@ -16,13 +16,13 @@ public class ECSNode implements IECSNode {
     private String name;
     private String host;
     private int port;
-    private int zkPort;
+    private int zkPort = -1;
     private String[] hashRange;
 
     public ECSNode(String name, String host, int port, int zkPort, String[] hashRange) {
         try {
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-            new LogSetup("logs/ecsnode_" + fmt.format(new Date()) + ".log", Level.ALL, false);
+            new LogSetup("logs/ecsnode_" + name + "_" + fmt.format(new Date()) + ".log", Level.ALL, false);
         } catch (Exception e) {
             System.out.println("Error! Unable to initialize logger!");
             e.printStackTrace();
@@ -35,7 +35,18 @@ public class ECSNode implements IECSNode {
         this.hashRange = hashRange.clone();
     }
 
+    public ECSNode(String name, String host, int port, String[] hashRange) {
+        this.name = name;
+        this.host = host;
+        this.port = port;
+        this.hashRange = hashRange.clone();
+    }
+
     public boolean initServer() {
+        if (this.zkPort == -1) {
+            return false;
+        }
+
         logger.info("Intializing server ... \nRunning script ...");
         String script = "script.sh";
 

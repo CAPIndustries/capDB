@@ -3,6 +3,8 @@ package app_kvServer;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.StringWriter;
+import java.io.PrintWriter;
 
 import java.net.Socket;
 
@@ -65,7 +67,8 @@ public class ClientConnection implements Runnable {
 				res = new KVMessage(key,
 						"Server is not is currently blocked for write requests due to reallocation of data!",
 						StatusType.SERVER_WRITE_LOCK);
-			} else if (this.server.inRange(key)) {
+			} else if (!this.server.inRange(key)) {
+				logger.info("Incorrect server!");
 				String metadata = this.server.getMetadata();
 				res = new KVMessage(key, metadata, StatusType.SERVER_NOT_RESPONSIBLE);
 				// TODO: Reconnect to the right server with the metadata
@@ -88,6 +91,7 @@ public class ClientConnection implements Runnable {
 		try {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
+			sendMetadata();
 			while (isOpen) {
 				try {
 					Long start = System.nanoTime();
@@ -169,6 +173,24 @@ public class ClientConnection implements Runnable {
 		}
 	}
 
+	private void sendMetadata() {
+		try {
+			logger.info("Sending initial metadata ...");
+			// Must send the initial metadata
+			KVMessage metadataMessage = new KVMessage("0",
+					this.server.getMetadata(),
+					StatusType.INITIAL_METADATA);
+			sendMessage(metadataMessage);
+			logger.info("Sent metadata");
+		} catch (Exception e) {
+			logger.error("Error while sending initial metadata!");
+			StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+			logger.error(sw.toString());
+		}
+	}
+
 	private KVMessage putKV(String key, String value) throws InvalidMessageException {
 		logger.info("<"
 				+ clientSocket.getInetAddress().getHostAddress() + ":"
@@ -217,7 +239,7 @@ public class ClientConnection implements Runnable {
 			return null;
 		}
 
-		logger.debug("First read:" + read);
+		// logger.debug("First read:" + read);
 
 		while (read != LINE_FEED && read != -1 && reading) {/* LF, error, drop */
 			/* if buffer filled, copy to msg array */
@@ -252,7 +274,7 @@ public class ClientConnection implements Runnable {
 			read = (byte) input.read();
 		}
 
-		logger.debug("Last read:" + read);
+		// logger.debug("Last read:" + read);
 
 		if (msgBytes == null) {
 			logger.debug("null message");

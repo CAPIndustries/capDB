@@ -10,7 +10,6 @@ import java.util.Scanner;
 import java.util.Date;
 import java.util.Stack;
 import java.util.TreeMap;
-import java.util.concurrent.TimeUnit;
 
 import java.text.SimpleDateFormat;
 
@@ -50,9 +49,9 @@ public class ECSClient implements IECSClient {
 
     private BufferedReader stdin;
     private boolean running = false;
-    private int booted_servers = 0;
     private Stack<String> available_servers = new Stack<String>();
     private TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
+    private String rawMetadata = "";
 
     private int zkPort;
     public ZooKeeper _zooKeeper = null;
@@ -220,18 +219,34 @@ public class ECSClient implements IECSClient {
             for (IECSNode node : active_servers.values()) {
                 String path = String.format("%s/%s", _rootZnode, node.getNodeName());
 
-                // Only send a 'BOOT' to the servers that arent yet booted
+                // Only send a 'START' to the servers that are ready to be started (i.e. have
+                // their metadata)
                 byte[] recvData = _zooKeeper.getData(path,
                         false, null);
                 NodeEvent status = NodeEvent.valueOf(new String(recvData,
                         "UTF-8").split("~")[0]);
 
-                if (status.ordinal() > NodeEvent.BOOT_COMPLETE.ordinal()) {
-                    continue;
-                }
+                if (status == NodeEvent.METADATA_COMPLETE) {
+                    // First, check if any move events have to take place:
+                    String[] movedData = moveData(path);
+                    if (movedData != null) {
+                        logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
+                        try {
+                            String data = NodeEvent.MOVE.name() + "~"
+                                    + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
 
-                byte[] data = NodeEvent.BOOT.name().getBytes();
-                _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+                            byte[] dataBytes = data.getBytes();
+                            _zooKeeper.setData(movedData[0], dataBytes,
+                                    _zooKeeper.exists(movedData[0], true).getVersion());
+                        } catch (Exception e) {
+                            logger.error("Error while sending move data");
+                            logger.error(e.getMessage());
+                        }
+                    }
+
+                    byte[] data = NodeEvent.START.name().getBytes();
+                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+                }
             }
         } catch (Exception e) {
             logger.error("Error starting server!");
@@ -370,26 +385,58 @@ public class ECSClient implements IECSClient {
         }
     }
 
-    public void sendMetadata() {
-        // Only broadcast the Metadata once all participating servers are ready
-        // Since otherwise, some requests might not be served due to servers still
-        // booting up. Data race....
-        booted_servers += 1;
-        logger.info("Booted up server count: " + booted_servers + " of " + active_servers.size());
-        if (booted_servers != active_servers.size()) {
-            return;
-        }
-        try {
-            // Sleep for a little to let the last participating server process a little
-            // TimeUnit.MILLISECONDS.sleep(500);
-        } catch (Exception e) {
-            logger.error("Sleep error!");
+    private String[] moveData(String path) {
+        String serverName = path.substring(path.lastIndexOf("/") + 1);
+
+        for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
+            String key = entry.getKey();
+            ECSNode node = entry.getValue();
+
+            if (node.getNodeName().equals(serverName)) {
+                Map.Entry<String, ECSNode> successor = active_servers.higherEntry(key);
+                // If it wraps around:
+                if (successor == null) {
+                    successor = active_servers.firstEntry();
+                }
+                ECSNode successorVal = successor.getValue();
+                if (successorVal.getNodeName().equals(serverName)) {
+                    return null;
+                }
+                String znode = String.format("%s/%s", _rootZnode, successorVal.getNodeName());
+                String lower = active_servers.lowerKey(key);
+                if (lower == null) {
+                    lower = active_servers.lastKey();
+                }
+                return new String[] { znode, lower, key, node.getNodeName() };
+            }
         }
 
-        logger.info("Broadcasting metadata to all participating servers ...");
+        return null;
+    }
+
+    public void sendMetadataBooted() {
+        try {
+            for (IECSNode node : active_servers.values()) {
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+                byte[] recvData = _zooKeeper.getData(path,
+                        false, null);
+                NodeEvent status = NodeEvent.valueOf(new String(recvData,
+                        "UTF-8").split("~")[0]);
+
+                if (status == NodeEvent.BOOT_COMPLETE) {
+                    sendMetadata(path);
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error while getting data from ZooKeeper");
+            logger.error(e.getMessage());
+        }
+    }
+
+    private void updateMetadata() {
         // Update lower bounds now that all the participating servers have booted
         // Then, gather all server data
-        List<String> serverData = new ArrayList<>(Arrays.asList(NodeEvent.METADATA.name()));
+        List<String> serverData = new ArrayList();
         for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
             String key = entry.getKey();
             ECSNode node = entry.getValue();
@@ -405,8 +452,32 @@ public class ECSClient implements IECSClient {
             active_servers.put(key, node);
             serverData.add(node.getMeta());
         }
-        byte[] data = String.join("~", serverData).getBytes();
-        logger.info("Sending:" + String.join("~", serverData));
+        rawMetadata = String.join(",", serverData);
+    }
+
+    public void sendMetadata(String path) {
+        logger.info("Sending metadata to " + path + " ...");
+
+        updateMetadata();
+
+        String metadata = NodeEvent.METADATA.name() + "~" + rawMetadata;
+        byte[] data = metadata.getBytes();
+        logger.info("Sending:" + metadata);
+        try {
+            _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+        } catch (Exception e) {
+            logger.error("Error while broadcasting metadata");
+            logger.error(e.getMessage());
+        }
+    }
+
+    public void sendMetadata() {
+        logger.info("Broadcasting metadata to all participating servers ...");
+        updateMetadata();
+
+        String metadata = NodeEvent.METADATA.name() + "~" + rawMetadata;
+        byte[] data = metadata.getBytes();
+        logger.info("Sending:" + metadata);
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {

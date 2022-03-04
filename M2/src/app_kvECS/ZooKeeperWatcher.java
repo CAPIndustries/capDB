@@ -56,19 +56,21 @@ public class ZooKeeperWatcher implements Watcher {
                             "UTF-8").split("~");
                     logger.info("Got:" + String.join("", data));
                     switch (NodeEvent.valueOf(data[0])) {
-                        case BOOT_COMPLETE:
-                            // Send metadata
-                            logger.info("Sending metadata!");
-                            caller.sendMetadata();
-                            break;
                         case METADATA_COMPLETE:
-                            // TODO: Here is where we can release the WRITE_LOCK or wtv
                             logger.info("Metadata ACK!");
                             break;
+                        case MOVE_COMPLETE:
+                            caller.sendMetadata();
+                            break;
+                        case BOOT_COMPLETE:
+                            caller.sendMetadata(path);
+                            break;
                         // Skip the following events:
+                        case START:
                         case BOOT:
                         case METADATA:
                         case SHUTDOWN:
+                        case MOVE:
                             break;
                         default:
                             logger.error("Unrecognized node event:" + data[0]);
@@ -79,7 +81,16 @@ public class ZooKeeperWatcher implements Watcher {
                 }
                 break;
             case NodeChildrenChanged:
-                logger.info("Child node change");
+                // Is it a new child? Or did a node get deleted?
+                logger.info("New child created");
+                // try {
+                // if (caller._zooKeeper.exists(path, true) != null) {
+                // caller.sendMetadataBooted();
+                // }
+                // } catch (Exception e) {
+                // logger.error("Error while getting data");
+                // logger.error(e.getMessage());
+                // }
                 break;
             case NodeCreated:
                 // TODO: Delete if not using later...
