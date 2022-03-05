@@ -7,6 +7,8 @@ import java.net.Socket;
 import java.io.IOException;
 import java.io.File;
 import java.io.FileWriter;
+import java.io.StringWriter;
+import java.io.PrintWriter;
 
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
@@ -126,7 +128,6 @@ public class KVServer implements IKVServer {
 			logger.error("Could not not initialize ZooKeeper!");
 			_zooKeeper = null;
 		} else {
-			initializeStorage();
 			// Let ECS know that we've booted
 			setNodeData(NodeEvent.BOOT_COMPLETE.name());
 			logger.info("Spinning until server boots ...");
@@ -436,9 +437,11 @@ public class KVServer implements IKVServer {
 			logger.error("ZooKeeper node not initialized");
 			return;
 		}
-		if (!initializeServer()) {
-			logger.error("Coult not initialize server!");
-			return;
+		if (serverSocket == null) {
+			if (!initializeServer()) {
+				logger.error("Coult not initialize server!");
+				return;
+			}
 		}
 		if (serverSocket != null) {
 			logger.info("Server running ...");
@@ -477,6 +480,7 @@ public class KVServer implements IKVServer {
 				serverSocket = null;
 			}
 			logger.info("Server closed");
+			System.exit(0);
 		} catch (IOException e) {
 			logger.error("Error! " + "Unable to close socket on port: " + port, e);
 		}
@@ -532,6 +536,7 @@ public class KVServer implements IKVServer {
 
 	private boolean initializeServer() {
 		logger.info("Initializing server ...");
+		initializeStorage();
 
 		try {
 			serverSocket = new ServerSocket(port);
@@ -542,6 +547,12 @@ public class KVServer implements IKVServer {
 			if (e instanceof BindException) {
 				logger.error("Port " + port + " is already bound!");
 			}
+
+			StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+			logger.error(sw.toString());
+
 			System.exit(1);
 			return false;
 		}
@@ -550,11 +561,15 @@ public class KVServer implements IKVServer {
 	private boolean initializeZooKeeper() {
 		logger.info("Creating & initializing ZooKeeper node ...");
 		try {
-			_zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, new ZooKeeperWatcher(this));
+			ZooKeeperWatcher zkWatcher = new ZooKeeperWatcher(this);
+			_zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, zkWatcher);
 			byte[] data = NodeEvent.BOOT.name().getBytes();
-			logger.info("Creating node:" + String.format("%s/%s", _rootZnode, name));
-			_zooKeeper.create(String.format("%s/%s", _rootZnode, name), data, ZooDefs.Ids.OPEN_ACL_UNSAFE,
+			String path = String.format("%s/%s", _rootZnode, name);
+			logger.info("Creating node:" + path);
+			_zooKeeper.create(path, data, ZooDefs.Ids.OPEN_ACL_UNSAFE,
 					CreateMode.EPHEMERAL);
+			_zooKeeper.getData(path,
+					zkWatcher, null);
 			return true;
 		} catch (Exception e) {
 			logger.error("Error encountered while creating ZooKeeper node!");
@@ -614,16 +629,33 @@ public class KVServer implements IKVServer {
 				return;
 			}
 		}
-		// Send an ACK of the metadata receival
-		setNodeData(NodeEvent.METADATA_COMPLETE.name());
-		// Check if server is ready:
-		if (movedItems.size() > 0) {
-			moveComplete();
+
+		if (getStatus() == Status.STOPPED) {
+			// Send an ACK of the metadata receival
+			setNodeData(NodeEvent.METADATA_COMPLETE.name());
 		}
 	}
 
 	public String getMetadata() {
 		return rawMetadata;
+	}
+
+	public void stop() {
+		setStatus(Status.STOPPED);
+	}
+
+	public void start() {
+		if (getStatus() == Status.STOPPED) {
+			setStatus(Status.STARTED);
+		}
+	}
+
+	public void lockWrite() {
+		setStatus(Status.LOCKED);
+	}
+
+	public void unLockWrite() {
+		setStatus(Status.STARTED);
 	}
 
 	public void shutdown() {
@@ -643,7 +675,7 @@ public class KVServer implements IKVServer {
 			logger.info("Sending:" + data);
 			byte[] dataBytes = data.getBytes();
 			String path = String.format("%s/%s", _rootZnode, name);
-			_zooKeeper.setData(path, dataBytes, _zooKeeper.exists(path, true).getVersion());
+			_zooKeeper.setData(path, dataBytes, _zooKeeper.exists(path, false).getVersion());
 		} catch (Exception e) {
 			logger.error("Error setting node data!");
 			logger.error(e.getMessage());
@@ -695,13 +727,19 @@ public class KVServer implements IKVServer {
 		return rangeFunction(serverNode.getNodeHashRange(), hash);
 	}
 
-	public void moveData(String[] range, String serverName) {
+	public void copyData(String[] range, String serverName) {
 		// Move the data to the destination server, but lock this server first
 		setStatus(Status.LOCKED);
 		logger.info("Locking server & moving data");
+		logger.info("Moving from " + serverName);
 
 		File dir = new File(this.storageDirectory);
 		String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, serverName);
+		File destDir = new File(dest);
+		if (!destDir.exists()) {
+			logger.info("Destination directory does not exist. Creating new directory ...");
+			destDir.mkdir();
+		}
 		File[] directoryListing = dir.listFiles();
 		for (File item : directoryListing) {
 			try {
@@ -714,21 +752,28 @@ public class KVServer implements IKVServer {
 				String hash = String.format("%0" + (digest.length << 1) + "x", bi);
 				if (rangeFunction(range, hash)) {
 					logger.info("Going to move:" + item.getName());
+					logger.info("From :" + item.toPath());
+					logger.info("To: " + new File(dest + item.getName()).toPath());
 					movedItems.add(item.getName());
+
 					Files.copy(item.toPath(),
 							new File(dest + item.getName()).toPath(),
 							StandardCopyOption.REPLACE_EXISTING);
 				}
 			} catch (Exception e) {
 				logger.error("Error while trying to move keys");
-				logger.error(e.getMessage());
+
+				StringWriter sw = new StringWriter();
+				PrintWriter pw = new PrintWriter(sw);
+				e.printStackTrace(pw);
+				logger.error(sw.toString());
 			}
 		}
 
-		setNodeData(NodeEvent.MOVE_COMPLETE.name());
+		setNodeData(NodeEvent.COPY_COMPLETE.name());
 	}
 
-	public void moveComplete() {
+	public void moveData() {
 		logger.info("Completing the move by deleting the items ...");
 
 		for (String item : movedItems) {
@@ -744,16 +789,15 @@ public class KVServer implements IKVServer {
 
 		logger.info("Deletion completed");
 		movedItems.clear();
-		if (getStatus() == Status.LOCKED) {
-			setStatus(Status.STARTED);
-		}
+		setStatus(Status.STARTED);
+		setNodeData(NodeEvent.MOVE_COMPLETE.name());
 	}
 
 	public synchronized Status getStatus() {
 		return this.status;
 	}
 
-	public synchronized void setStatus(Status run) {
+	private synchronized void setStatus(Status run) {
 		this.status = run;
 	}
 }

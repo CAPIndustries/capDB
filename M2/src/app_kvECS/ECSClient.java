@@ -10,6 +10,7 @@ import java.util.Scanner;
 import java.util.Date;
 import java.util.Stack;
 import java.util.TreeMap;
+import java.util.Iterator;
 
 import java.text.SimpleDateFormat;
 
@@ -17,6 +18,8 @@ import java.io.File;
 import java.io.IOException;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.io.StringWriter;
+import java.io.PrintWriter;
 
 import java.security.MessageDigest;
 
@@ -52,6 +55,7 @@ public class ECSClient implements IECSClient {
     private Stack<String> available_servers = new Stack<String>();
     private TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
     private String rawMetadata = "";
+    private boolean shutdown = false;
 
     private int zkPort;
     public ZooKeeper _zooKeeper = null;
@@ -167,7 +171,6 @@ public class ECSClient implements IECSClient {
         } else if (tokens[0].equals("shutDown")) {
             if (tokens.length == 1) {
                 shutdown();
-                logger.info(PROMPT + "Application exit!");
             } else {
                 printError("Expected 0 arguments");
             }
@@ -179,10 +182,11 @@ public class ECSClient implements IECSClient {
             }
         } else if (tokens[0].equals("removeNode")) {
             if (tokens.length == 2) {
-                List<String> removalList = Collections.singletonList(tokens[1]);
-                removeNodes(removalList);
+                if (!removeNode(tokens[1])) {
+                    printError("Could not remove node!");
+                }
             } else {
-                printError("Expected 1 argument: removeNode <index of server>");
+                printError("Expected 1 argument: removeNode <ZooKeeper path of server>");
             }
         } else if (tokens[0].equals("help")) {
             if (tokens.length == 1) {
@@ -211,6 +215,8 @@ public class ECSClient implements IECSClient {
         // Create the root node
         byte[] data = "".getBytes();
         _zooKeeper.create(_rootZnode, data, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        _zooKeeper.getChildren(_rootZnode,
+                true);
     }
 
     @Override
@@ -227,25 +233,13 @@ public class ECSClient implements IECSClient {
                         "UTF-8").split("~")[0]);
 
                 if (status == NodeEvent.METADATA_COMPLETE) {
-                    // First, check if any move events have to take place:
-                    String[] movedData = moveData(path);
-                    if (movedData != null) {
-                        logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
-                        try {
-                            String data = NodeEvent.MOVE.name() + "~"
-                                    + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
-
-                            byte[] dataBytes = data.getBytes();
-                            _zooKeeper.setData(movedData[0], dataBytes,
-                                    _zooKeeper.exists(movedData[0], true).getVersion());
-                        } catch (Exception e) {
-                            logger.error("Error while sending move data");
-                            logger.error(e.getMessage());
-                        }
-                    }
-
+                    logger.info("Going to start " + path);
                     byte[] data = NodeEvent.START.name().getBytes();
-                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+                } else if (status == NodeEvent.COPY_COMPLETE) {
+                    logger.info("Going to move " + path);
+                    byte[] data = NodeEvent.MOVE.name().getBytes();
+                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
                 }
             }
         } catch (Exception e) {
@@ -256,36 +250,80 @@ public class ECSClient implements IECSClient {
         return false;
     }
 
-    @Override
-    public boolean stop() {
-        logger.info("Broadcasting shutdown event to all participating servers ...");
-        byte[] data = NodeEvent.SHUTDOWN.name().getBytes();
+    private boolean broadcastData(byte[] data) {
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
                 String path = String.format("%s/%s", _rootZnode, node.getNodeName());
-                _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+                if (_zooKeeper.exists(path, false) != null) {
+                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+                }
             }
             return true;
         } catch (Exception e) {
             logger.error("Error while shutting down");
-            logger.error(e.getMessage());
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
             return false;
         }
     }
 
     @Override
+    public boolean stop() {
+        logger.info("Broadcasting shutdown event to all participating servers ...");
+        byte[] data = NodeEvent.STOP.name().getBytes();
+
+        boolean res = broadcastData(data);
+        if (!res) {
+            logger.error("Could not broadcast STOP event!");
+        }
+
+        return res;
+    }
+
+    @Override
     public boolean shutdown() {
         try {
-            logger.info("Shutting Down");
-            stop();
-            _zooKeeper.close();
+            logger.info("Shutting Down ...");
+
+            // Send SHUTDOWN event to all participating servers
+            byte[] data = NodeEvent.SHUTDOWN.name().getBytes();
+            boolean res = broadcastData(data);
+            if (!res) {
+                logger.error("Could not broadcast SHUTDOWN event!");
+                return false;
+            }
+
+            shutdown = true;
+            completeShutdown();
 
             return true;
         } catch (Exception e) {
             logger.error(e);
             e.printStackTrace();
             return false;
+        }
+    }
+
+    private void completeShutdown() {
+        try {
+            if (active_servers.size() == 0) {
+                logger.info("All remote servers closed. Shutting down ECS ....");
+                // Delete the ZooKeeper root node
+                _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode, false).getVersion());
+
+                _zooKeeper.close();
+                logger.info(PROMPT + "Application exit!");
+                System.exit(0);
+            } else {
+                logger.info("Waiting on " + active_servers.size() + " to shutdown ...");
+            }
+        } catch (Exception e) {
+            logger.error("Error while completing the shutdown");
+            e.printStackTrace();
         }
     }
 
@@ -318,6 +356,23 @@ public class ECSClient implements IECSClient {
 
             logger.info("Added:" + serverInfo[1] + ":" + serverInfo[2]);
             active_servers.put(hash, node);
+
+            // Check if any move events have to take place:
+            String[] movedData = moveData(String.format("%s/%s", _rootZnode, serverInfo[0]));
+            if (movedData != null) {
+                logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
+                try {
+                    String data = NodeEvent.COPY.name() + "~"
+                            + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
+
+                    byte[] dataBytes = data.getBytes();
+                    _zooKeeper.setData(movedData[0], dataBytes,
+                            _zooKeeper.exists(movedData[0], false).getVersion());
+                } catch (Exception e) {
+                    logger.error("Error while sending move data");
+                    logger.error(e.getMessage());
+                }
+            }
 
             return node;
         } catch (Exception e) {
@@ -353,8 +408,107 @@ public class ECSClient implements IECSClient {
 
     @Override
     public boolean removeNodes(Collection<String> nodeNames) {
-        // TODO
+        for (String name : nodeNames) {
+            boolean res = removeNode(name);
+            if (!res) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Remove a random server (currently set as the first element)
+    public boolean removeNode() {
+        if (active_servers.size() == 0) {
+            logger.error("No servers running to delete!");
+            return false;
+        }
+
+        Map.Entry<String, ECSNode> entry = active_servers.entrySet().iterator().next();
+        return removeNode(entry.getValue().getNodeName());
+    }
+
+    // Remove a specific server
+    public boolean removeNode(String serverName) {
+        for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
+            String key = entry.getKey();
+            ECSNode node = entry.getValue();
+            String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+            if (path.equals(serverName)) {
+                try {
+                    if (_zooKeeper.exists(path, false) != null) {
+                        byte[] data = NodeEvent.SHUTDOWN.name().getBytes();
+                        _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+                    }
+                    logger.info("Removed " + serverName);
+                    active_servers.remove(key);
+
+                    updateMetadata();
+
+                    return true;
+                } catch (Exception e) {
+                    logger.error("Error while removing node!");
+
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    e.printStackTrace(pw);
+                    logger.error(sw.toString());
+
+                    return false;
+                }
+            }
+        }
+
+        logger.error("Could not find the node for removal");
         return false;
+    }
+
+    public boolean nodeRemovedCreated() {
+        Iterator<Map.Entry<String, ECSNode>> iter = active_servers.entrySet().iterator();
+
+        while (iter.hasNext()) {
+            Map.Entry<String, ECSNode> entry = iter.next();
+
+            String key = entry.getKey();
+            ECSNode node = entry.getValue();
+            String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+            try {
+                if (_zooKeeper.exists(path, false) == null) {
+                    // Node was deleted
+                    logger.info("Node removal of " + node.getNodeName());
+                    iter.remove();
+
+                    if (shutdown) {
+                        completeShutdown();
+                    }
+                } else {
+                    byte[] recvData = _zooKeeper.getData(path,
+                            false, null);
+                    NodeEvent status = NodeEvent.valueOf(new String(recvData,
+                            "UTF-8").split("~")[0]);
+
+                    if (status == NodeEvent.BOOT || status == NodeEvent.BOOT_COMPLETE) {
+                        // Node was created
+                        logger.info("New node created at: " + path);
+                        // Subscribe to it
+                        _zooKeeper.exists(path,
+                                true);
+                    }
+                }
+            } catch (Exception e) {
+                logger.error("Error while checking for removed nodes");
+
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                e.printStackTrace(pw);
+                logger.error(sw.toString());
+
+                return false;
+            }
+        }
+
+        updateMetadata();
+        return true;
     }
 
     @Override
@@ -464,7 +618,7 @@ public class ECSClient implements IECSClient {
         byte[] data = metadata.getBytes();
         logger.info("Sending:" + metadata);
         try {
-            _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+            _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
         } catch (Exception e) {
             logger.error("Error while broadcasting metadata");
             logger.error(e.getMessage());
@@ -483,7 +637,7 @@ public class ECSClient implements IECSClient {
             for (IECSNode node : active_servers.values()) {
                 String path = String.format("%s/%s", _rootZnode, node.getNodeName());
                 logger.info("\tTo " + path);
-                _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+                _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
             }
         } catch (Exception e) {
             logger.error("Error while broadcasting metadata");

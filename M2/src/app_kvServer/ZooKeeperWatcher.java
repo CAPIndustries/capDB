@@ -49,7 +49,7 @@ public class ZooKeeperWatcher implements Watcher {
             case NodeDataChanged:
                 try {
                     byte[] dataBytes = caller._zooKeeper.getData(path,
-                            this, null);
+                            false, null);
                     String[] data = new String(dataBytes,
                             "UTF-8").split("~");
                     logger.info("Got:" + String.join("", data));
@@ -59,20 +59,27 @@ public class ZooKeeperWatcher implements Watcher {
                             caller.loadMetadata(data[1]);
                             break;
                         case START:
-                            caller.setStatus(Status.STARTED);
-                            return;
+                            caller.start();
+                            break;
+                        case STOP:
+                            caller.stop();
+                            break;
                         case SHUTDOWN:
                             caller.shutdown();
-                            return;
-                        case MOVE:
+                            break;
+                        case COPY:
                             String[] moveData = data[1].split(",");
                             String[] range = { moveData[0], moveData[1] };
-                            caller.moveData(range, moveData[2]);
-                            return;
+                            caller.copyData(range, moveData[2]);
+                            break;
+                        case MOVE:
+                            caller.moveData();
+                            break;
                         // Ignored events:
                         case BOOT:
                         case BOOT_COMPLETE:
                         case METADATA_COMPLETE:
+                        case COPY_COMPLETE:
                         case MOVE_COMPLETE:
                             break;
                         default:
@@ -83,17 +90,13 @@ public class ZooKeeperWatcher implements Watcher {
                     logger.error(e.getMessage());
                 }
                 break;
-            case NodeDeleted:
-                logger.info("node " + path + " Deleted");
-                return;
         }
 
         try {
-            logger.info("Resetting watchers ...");
+            String watchPath = String.format("%s/%s", caller._rootZnode, caller.name);
+            logger.info("Resetting watchers on " + watchPath + " ...");
             // Since notifications are a one time thing, we must reset the watcher
-            // Subscribe to both the parent and the node itself
-            caller._zooKeeper.exists(caller._rootZnode, true);
-            caller._zooKeeper.exists(String.format("%s/%s", caller._rootZnode, caller.name), true);
+            caller._zooKeeper.getData(watchPath, this, null);
         } catch (Exception e) {
             logger.error("Error while resetting watcher!");
             logger.error(e.getMessage());

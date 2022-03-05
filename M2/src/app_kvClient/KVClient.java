@@ -210,6 +210,9 @@ public class KVClient implements IKVClient {
 					printError("DELETE operation with key " + res.getKey() + " failed: "
 							+ res.getValue());
 					break;
+				case SERVER_WRITE_LOCK:
+					printError("Server locked for writes");
+					break;
 				default:
 					printError("Unknown PUT status!");
 					logger.error("ERROR: Unknown status return for PUT:" + res.getStatus());
@@ -277,7 +280,6 @@ public class KVClient implements IKVClient {
 				"\t\t inserts a key-value pair into the storage server data structures, updates (overwrites) the current value with the given value if the server already contains the specified key or deletes the entry for the given key if <value> equals null\n");
 		sb.append(PROMPT).append("get <key>");
 		sb.append("\t\t retrieves the value for the given key from the storage server\n");
-
 
 		sb.append(PROMPT).append("logLevel <level>");
 		sb.append("\t\t changes the logLevel. Must be one of:\n");

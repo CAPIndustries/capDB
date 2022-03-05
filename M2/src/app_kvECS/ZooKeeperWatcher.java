@@ -51,7 +51,7 @@ public class ZooKeeperWatcher implements Watcher {
                 try {
                     logger.info("Node data update");
                     byte[] dataBytes = caller._zooKeeper.getData(path,
-                            this, null);
+                            false, null);
                     String[] data = new String(dataBytes,
                             "UTF-8").split("~");
                     logger.info("Got:" + String.join("", data));
@@ -66,15 +66,22 @@ public class ZooKeeperWatcher implements Watcher {
                             caller.sendMetadata(path);
                             break;
                         // Skip the following events:
+                        case COPY_COMPLETE:
                         case START:
                         case BOOT:
                         case METADATA:
+                        case STOP:
                         case SHUTDOWN:
+                        case COPY:
                         case MOVE:
                             break;
                         default:
                             logger.error("Unrecognized node event:" + data[0]);
                     }
+
+                    // Resubscribe back:
+                    logger.info("Resubscribing back to " + path);
+                    caller._zooKeeper.exists(path, true);
                 } catch (Exception e) {
                     logger.error("Error while getting data");
                     logger.error(e.getMessage());
@@ -82,39 +89,19 @@ public class ZooKeeperWatcher implements Watcher {
                 break;
             case NodeChildrenChanged:
                 // Is it a new child? Or did a node get deleted?
-                logger.info("New child created");
-                // try {
-                // if (caller._zooKeeper.exists(path, true) != null) {
-                // caller.sendMetadataBooted();
-                // }
-                // } catch (Exception e) {
-                // logger.error("Error while getting data");
-                // logger.error(e.getMessage());
-                // }
-                break;
-            case NodeCreated:
-                // TODO: Delete if not using later...
-                logger.info("Node creation");
-                break;
-            case NodeDeleted:
-                logger.info("node " + path + " Deleted");
-                break;
-        }
+                logger.info("Node created/deleted");
+                caller.nodeRemovedCreated();
 
-        // Subscribe once more
-        try {
-            logger.info("Resetting watchers ...");
-            caller._zooKeeper.exists(caller._rootZnode, true);
-            String test = caller._rootZnode;
-            List<String> servers = caller._zooKeeper.getChildren(caller._rootZnode,
-                    true);
-            for (String server : servers) {
-                String p = String.format("%s/%s", caller._rootZnode, server);
-                caller._zooKeeper.exists(p, true);
-            }
-        } catch (Exception e) {
-            logger.error("Error while resetting watcher!");
-            logger.error(e.getMessage());
+                // Resubscribe back:
+                try {
+                    caller._zooKeeper.getChildren(caller._rootZnode,
+                            true);
+                } catch (Exception e) {
+                    logger.error("Error while resubscribing back to obtain children");
+                }
+                break;
+            default:
+                break;
         }
     }
 
