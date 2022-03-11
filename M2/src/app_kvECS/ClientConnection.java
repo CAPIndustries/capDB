@@ -222,7 +222,7 @@ public class ClientConnection implements Runnable {
 			}
 
 			String res = String.join(",", nodeList);
-			logger.info("Sending:" + res);
+			logger.info("Sending new node list:" + res);
 
 			msg = new KVMessage("none", res, StatusType.ACK);
 		}
@@ -260,7 +260,7 @@ public class ClientConnection implements Runnable {
 				+ clientSocket.getInetAddress().getHostAddress() + ":"
 				+ clientSocket.getPort() + "> (SHUTDOWN_ECS)");
 
-		server.shutDownECS();
+		server.terminate();
 	}
 
 	/**

@@ -673,6 +673,21 @@ public class KVServer implements IKVServer {
 		}
 	}
 
+	public void completeShutdown() {
+		try {
+			close();
+			_zooKeeper.close();
+			logger.info("Shutdown ZooKeeper");
+		} catch (Exception e) {
+			logger.error("Error shutting down");
+
+			StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+			logger.error(sw.toString());
+		}
+	}
+
 	@Override
 	public void update(String data) {
 		initKVServer(data);
@@ -761,7 +776,7 @@ public class KVServer implements IKVServer {
 				String hash = String.format("%0" + (digest.length << 1) + "x", bi);
 				if (rangeFunction(range, hash)) {
 					logger.info("Going to move:" + item.getName());
-					logger.info("From :" + item.toPath());
+					logger.info("From: " + item.toPath());
 					logger.info("To: " + new File(dest + item.getName()).toPath());
 					movedItems.add(item.getName());
 
@@ -798,18 +813,7 @@ public class KVServer implements IKVServer {
 
 		logger.info("Deletion completed");
 		if (shutdown) {
-			try {
-				close();
-				_zooKeeper.close();
-				logger.info("Shutdown ZooKeeper");
-			} catch (Exception e) {
-				logger.error("Error shutting down");
-
-				StringWriter sw = new StringWriter();
-				PrintWriter pw = new PrintWriter(sw);
-				e.printStackTrace(pw);
-				logger.error(sw.toString());
-			}
+			completeShutdown();
 		} else {
 			movedItems.clear();
 			setStatus(Status.STARTED);

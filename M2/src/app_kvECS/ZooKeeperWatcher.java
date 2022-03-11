@@ -28,7 +28,6 @@ public class ZooKeeperWatcher implements Watcher {
 
     @Override
     public void process(WatchedEvent event) {
-        logger.info("WATCHER NOTIFICATION!");
         if (event == null) {
             return;
         }
@@ -40,6 +39,7 @@ public class ZooKeeperWatcher implements Watcher {
         // Affected path
         String path = event.getPath();
 
+        logger.info("Event from:\t" + path);
         logger.info("Connection status:\t" + keeperState.toString());
         logger.info("Event type:\t" + eventType.toString());
 
@@ -50,11 +50,14 @@ public class ZooKeeperWatcher implements Watcher {
             case NodeDataChanged:
                 try {
                     logger.info("Node data update");
+                    // Resubscribe below:
                     byte[] dataBytes = caller._zooKeeper.getData(path,
-                            false, null);
-                    String[] data = new String(dataBytes,
-                            "UTF-8").split("~");
-                    logger.info("Got:" + String.join("", data));
+                            true, null);
+                    String recv = new String(dataBytes,
+                            "UTF-8");
+                    logger.info("ZooKeeper Notification:" + recv);
+                    String[] data = recv.split("~");
+
                     switch (NodeEvent.valueOf(data[0])) {
                         case METADATA_COMPLETE:
                             logger.info("Metadata ACK!");
@@ -63,7 +66,7 @@ public class ZooKeeperWatcher implements Watcher {
                             caller.sendMetadata();
                             break;
                         case COPY_COMPLETE:
-                            caller.completeBoot(path);
+                            caller.completeCopy(path);
                             break;
                         // Skip the following events:
                         case START:
@@ -79,8 +82,8 @@ public class ZooKeeperWatcher implements Watcher {
                     }
 
                     // Resubscribe back:
-                    logger.info("Resubscribing back to " + path);
-                    caller._zooKeeper.exists(path, true);
+                    // logger.info("Resubscribing back to " + path);
+                    // caller._zooKeeper.exists(path, true);
                 } catch (Exception e) {
                     logger.error("Error while getting data");
                     logger.error(e.getMessage());

@@ -50,9 +50,10 @@ public class ZooKeeperWatcher implements Watcher {
                 try {
                     byte[] dataBytes = caller._zooKeeper.getData(path,
                             false, null);
-                    String[] data = new String(dataBytes,
-                            "UTF-8").split("~");
-                    logger.info("Got:" + String.join("", data));
+                    String recv = new String(dataBytes,
+                            "UTF-8");
+                    logger.info("ZooKeeper Notification:" + recv);
+                    String[] data = recv.split("~");
 
                     switch (NodeEvent.valueOf(data[0])) {
                         case METADATA:
@@ -66,6 +67,10 @@ public class ZooKeeperWatcher implements Watcher {
                             break;
                         case SHUTDOWN:
                             caller.shutDown();
+                            if (data.length == 1) {
+                                caller.completeShutdown();
+                                break;
+                            }
                             // NOTE: This fallthrough is deliberate
                         case COPY:
                             String[] moveData = data[1].split(",");
