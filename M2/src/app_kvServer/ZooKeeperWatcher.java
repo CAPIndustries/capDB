@@ -56,7 +56,7 @@ public class ZooKeeperWatcher implements Watcher {
 
                     switch (NodeEvent.valueOf(data[0])) {
                         case METADATA:
-                            caller.loadMetadata(data[1]);
+                            caller.initKVServer(data[1]);
                             break;
                         case START:
                             caller.start();
@@ -65,15 +65,15 @@ public class ZooKeeperWatcher implements Watcher {
                             caller.stop();
                             break;
                         case SHUTDOWN:
-                            caller.shutdown();
+                            caller.shutDown();
                             break;
                         case COPY:
                             String[] moveData = data[1].split(",");
                             String[] range = { moveData[0], moveData[1] };
-                            caller.copyData(range, moveData[2]);
+                            caller.moveData(range, moveData[2]);
                             break;
                         case MOVE:
-                            caller.moveData();
+                            caller.completeMove();
                             break;
                         // Ignored events:
                         case BOOT:

@@ -602,7 +602,8 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	public void loadMetadata(String data) {
+	@Override
+	public void initKVServer(String data) {
 		logger.info("Loading metadata ...");
 		rawMetadata = data;
 		logger.info("Raw metadata:" + rawMetadata);
@@ -640,25 +641,30 @@ public class KVServer implements IKVServer {
 		return rawMetadata;
 	}
 
+	@Override
 	public void stop() {
 		setStatus(Status.STOPPED);
 	}
 
+	@Override
 	public void start() {
 		if (getStatus() == Status.STOPPED) {
 			setStatus(Status.STARTED);
 		}
 	}
 
+	@Override
 	public void lockWrite() {
 		setStatus(Status.LOCKED);
 	}
 
+	@Override
 	public void unLockWrite() {
 		setStatus(Status.STARTED);
 	}
 
-	public void shutdown() {
+	@Override
+	public void shutDown() {
 		try {
 			logger.info("Shutting down server & ZooKeeper node ...");
 			close();
@@ -668,6 +674,11 @@ public class KVServer implements IKVServer {
 			logger.error("Error while shutting down server");
 			logger.error(e.getMessage());
 		}
+	}
+
+	@Override
+	public void update(String data) {
+		initKVServer(data);
 	}
 
 	public synchronized void setNodeData(String data) {
@@ -727,7 +738,8 @@ public class KVServer implements IKVServer {
 		return rangeFunction(serverNode.getNodeHashRange(), hash);
 	}
 
-	public void copyData(String[] range, String serverName) {
+	@Override
+	public void moveData(String[] range, String serverName) {
 		// Move the data to the destination server, but lock this server first
 		setStatus(Status.LOCKED);
 		logger.info("Locking server & moving data");
@@ -773,7 +785,7 @@ public class KVServer implements IKVServer {
 		setNodeData(NodeEvent.COPY_COMPLETE.name());
 	}
 
-	public void moveData() {
+	public void completeMove() {
 		logger.info("Completing the move by deleting the items ...");
 
 		for (String item : movedItems) {
@@ -799,5 +811,13 @@ public class KVServer implements IKVServer {
 
 	private synchronized void setStatus(Status run) {
 		this.status = run;
+	}
+
+	public void loadMetadata(String data) {
+		if (rawMetadata.isEmpty()) {
+			initKVServer(data);
+		} else {
+			update(data);
+		}
 	}
 }

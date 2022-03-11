@@ -83,6 +83,57 @@ public interface IKVServer {
     public KVMessage putKV(int clientPort, String key, String value) throws Exception;
 
     /**
+     * Initialize the KVServer with the metadata and block it for client requests
+     * 
+     */
+    public void initKVServer(String metadata);
+
+    /**
+     * Starts the KVServer, all client requests and all ECS requests are processed.
+     * 
+     */
+    public void start();
+
+    /**
+     * Stops the KVServer, all client requests are rejected and only ECS requests
+     * are processed.
+     * 
+     */
+    public void stop();
+
+    /**
+     * Exits the KVServer application.
+     * 
+     */
+    public void shutDown();
+
+    /**
+     * Lock the KVServer for write operations.
+     * 
+     */
+    public void lockWrite();
+
+    /**
+     * Unlock the KVServer for write operations.
+     * 
+     */
+    public void unLockWrite();
+
+    /**
+     * Transfer a subset (range) of the KVServer’s data to another KVServer
+     * (reallocation before removing this server or adding a new KVServer to the
+     * ring); send a notification to the ECS, if data transfer is completed.
+     * 
+     */
+    public void moveData(String[] range, String server);
+
+    /**
+     * Update the metadata repository of this server
+     * 
+     */
+    public void update(String metadata);
+
+    /**
      * Clear the local cache of the server
      */
     public void clearCache();
