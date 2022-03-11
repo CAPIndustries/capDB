@@ -20,8 +20,6 @@ import java.text.SimpleDateFormat;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
 import java.io.StringWriter;
 import java.io.PrintWriter;
 
@@ -37,7 +35,6 @@ import org.apache.log4j.Logger;
 import org.apache.log4j.Level;
 
 import logger.LogSetup;
-import shared.messages.IKVMessage.StatusType;
 import app_kvServer.IKVServer.CacheStrategy;
 
 import app_kvECS.ZooKeeperWatcher;
@@ -45,10 +42,6 @@ import app_kvECS.ZooKeeperWatcher;
 import ecs.ECSNode;
 import ecs.IECSNode;
 import ecs.IECSNode.NodeEvent;
-
-import shared.messages.KVMessage;
-import shared.messages.IKVMessage;
-import shared.messages.IKVMessage.StatusType;
 
 import exceptions.InvalidMessageException;
 

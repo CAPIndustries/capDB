@@ -3,18 +3,15 @@ package app_kvECS;
 import java.io.InputStream;
 import java.io.IOException;
 import java.io.OutputStream;
-import java.io.StringWriter;
-import java.io.PrintWriter;
 
 import java.net.Socket;
 import java.util.Collection;
 
 import org.apache.log4j.Logger;
 
-import app_kvServer.IKVServer.Status;
 import ecs.IECSNode;
+
 import shared.messages.KVMessage;
-import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 
 import exceptions.InvalidMessageException;
