@@ -62,11 +62,10 @@ public class ZooKeeperWatcher implements Watcher {
                         case MOVE_COMPLETE:
                             caller.sendMetadata();
                             break;
-                        case BOOT_COMPLETE:
-                            caller.sendMetadata(path);
+                        case COPY_COMPLETE:
+                            caller.completeBoot(path);
                             break;
                         // Skip the following events:
-                        case COPY_COMPLETE:
                         case START:
                         case BOOT:
                         case METADATA:

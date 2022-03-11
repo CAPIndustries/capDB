@@ -69,6 +69,7 @@ public class KVServer implements IKVServer {
 	private TreeMap<String, ECSNode> metadata = new TreeMap<String, ECSNode>();
 	private String rawMetadata;
 	private ArrayList<String> movedItems = new ArrayList<String>();;
+	private boolean shutdown = false;
 
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode = "/servers";
@@ -128,8 +129,6 @@ public class KVServer implements IKVServer {
 			logger.error("Could not not initialize ZooKeeper!");
 			_zooKeeper = null;
 		} else {
-			// Let ECS know that we've booted
-			setNodeData(NodeEvent.BOOT_COMPLETE.name());
 			logger.info("Spinning until server boots ...");
 			// Keep spinning until signalled to start
 			while (getStatus() == Status.STOPPED)
@@ -667,9 +666,7 @@ public class KVServer implements IKVServer {
 	public void shutDown() {
 		try {
 			logger.info("Shutting down server & ZooKeeper node ...");
-			close();
-			_zooKeeper.close();
-			logger.info("Shutdown ZooKeeper");
+			shutdown = true;
 		} catch (Exception e) {
 			logger.error("Error while shutting down server");
 			logger.error(e.getMessage());
@@ -800,9 +797,24 @@ public class KVServer implements IKVServer {
 		}
 
 		logger.info("Deletion completed");
-		movedItems.clear();
-		setStatus(Status.STARTED);
-		setNodeData(NodeEvent.MOVE_COMPLETE.name());
+		if (shutdown) {
+			try {
+				close();
+				_zooKeeper.close();
+				logger.info("Shutdown ZooKeeper");
+			} catch (Exception e) {
+				logger.error("Error shutting down");
+
+				StringWriter sw = new StringWriter();
+				PrintWriter pw = new PrintWriter(sw);
+				e.printStackTrace(pw);
+				logger.error(sw.toString());
+			}
+		} else {
+			movedItems.clear();
+			setStatus(Status.STARTED);
+			setNodeData(NodeEvent.MOVE_COMPLETE.name());
+		}
 	}
 
 	public synchronized Status getStatus() {

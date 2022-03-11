@@ -5,10 +5,13 @@ import java.io.IOException;
 import java.io.OutputStream;
 
 import java.net.Socket;
+
 import java.util.Collection;
+import java.util.ArrayList;
 
 import org.apache.log4j.Logger;
 
+import ecs.ECSNode;
 import ecs.IECSNode;
 
 import shared.messages.KVMessage;
@@ -95,6 +98,9 @@ public class ClientConnection implements Runnable {
 							KVMessage listRes = list();
 							sendMessage(listRes);
 							sum += System.nanoTime() - start;
+							break;
+						case SHUTDOWN_ECS:
+							shutDownECS();
 							break;
 						case HEARTBEAT:
 							// Just echo it back
@@ -201,15 +207,26 @@ public class ClientConnection implements Runnable {
 				+ clientSocket.getInetAddress().getHostAddress() + ":"
 				+ clientSocket.getPort() + "> (ADD_NODES): " + value);
 
-		byte[] msgBytes = { StatusType.ACK.getVal() };
+		KVMessage msg = null;
 		String[] parsed = value.split(",");
 		Collection<IECSNode> nodes = server.addNodes(Integer.parseInt(parsed[0]), parsed[1],
 				Integer.parseInt(parsed[2]));
+
 		if (nodes.contains(null) || nodes.size() != Integer.parseInt(parsed[0])) {
-			msgBytes[0] = StatusType.NACK.getVal();
+			byte[] msgBytes = { StatusType.NACK.getVal() };
+			msg = new KVMessage(msgBytes);
+		} else {
+			ArrayList<String> nodeList = new ArrayList<String>();
+			for (IECSNode node : nodes) {
+				nodeList.add(node.getNodeName());
+			}
+
+			String res = String.join(",", nodeList);
+			logger.info("Sending:" + res);
+
+			msg = new KVMessage("none", res, StatusType.ACK);
 		}
 
-		KVMessage msg = new KVMessage(msgBytes);
 		return msg;
 	}
 
@@ -232,16 +249,18 @@ public class ClientConnection implements Runnable {
 				+ clientSocket.getInetAddress().getHostAddress() + ":"
 				+ clientSocket.getPort() + "> (LIST)");
 
-		// TODO: Call the LIST command
-		byte[] msgBytes = { StatusType.ACK.getVal() };
-		// if (server.removeNode(value)) {
-		// msgBytes[0] = StatusType.ACK.getVal();
-		// } else {
-		// msgBytes[0] = StatusType.NACK.getVal();
-		// }
+		String serverList = server.listNodes();
 
-		KVMessage msg = new KVMessage(msgBytes);
+		KVMessage msg = new KVMessage("none", serverList, StatusType.PUT);
 		return msg;
+	}
+
+	private void shutDownECS() throws InvalidMessageException {
+		logger.info("<"
+				+ clientSocket.getInetAddress().getHostAddress() + ":"
+				+ clientSocket.getPort() + "> (SHUTDOWN_ECS)");
+
+		server.shutDownECS();
 	}
 
 	/**

@@ -1,13 +1,6 @@
 To build a project:
 clear && ant clean && ant
 
-To run ECS:
-clear && java -jar m2-ecs.jar 49999 2181 ecs.config
-
-To run ECS Client:
-clear && java -jar m2-ecs-client.jar
-connect 127.0.0.1 49999
-
 To start ZooKeeper:
 ./zkServer.sh start
 
@@ -19,6 +12,17 @@ To stop ZooKeeper:
 
 To delete a node:
 delete /servers
+
+To run ECS:
+clear && java -jar m2-ecs.jar 49999 2181 ecs.config
+
+To run ECS Client:
+clear && java -jar m2-ecs-client.jar
+connect 127.0.0.1 49999
+
+To run client:
+clear && java -jar m2-client.jar
+connect 127.0.0.1 50007
 
 See who is using a port:
 lsof -i :50000
@@ -34,10 +38,6 @@ kill -2 12789
 
 To start script:
 bash -c "export host=127.0.0.1; export name=server1; export port=50000; export zkPort=2181; ./script.sh"
-
-To run client:
-clear && java -jar m2-client.jar
-connect 127.0.0.1 50007
 
 To run server (ports = 1024 - 65536):
 clear && java -jar m2-server.jar server1 50000 2181

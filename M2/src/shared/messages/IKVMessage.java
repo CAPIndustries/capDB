@@ -28,10 +28,11 @@ public interface IKVMessage {
 		START((byte) 16),
 		STOP((byte) 17),
 		SHUTDOWN((byte) 18),
-		REMOVE_NODE((byte) 19),
-		LIST((byte) 20),
-		ACK((byte) 21),
-		NACK((byte) 21);
+		SHUTDOWN_ECS((byte) 19),
+		REMOVE_NODE((byte) 20),
+		LIST((byte) 21),
+		ACK((byte) 22),
+		NACK((byte) 23);
 
 		private final byte val;
 

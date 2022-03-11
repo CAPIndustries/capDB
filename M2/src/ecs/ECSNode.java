@@ -85,7 +85,7 @@ public class ECSNode implements IECSNode {
     }
 
     /**
-     * @return the name of the node (ie "Server 8.8.8.8")
+     * @return the name of the node (ie "Server0")
      */
     @Override
     public String getNodeName() {

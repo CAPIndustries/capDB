@@ -66,7 +66,7 @@ public class ZooKeeperWatcher implements Watcher {
                             break;
                         case SHUTDOWN:
                             caller.shutDown();
-                            break;
+                            // NOTE: This fallthrough is deliberate
                         case COPY:
                             String[] moveData = data[1].split(",");
                             String[] range = { moveData[0], moveData[1] };
@@ -77,7 +77,6 @@ public class ZooKeeperWatcher implements Watcher {
                             break;
                         // Ignored events:
                         case BOOT:
-                        case BOOT_COMPLETE:
                         case METADATA_COMPLETE:
                         case COPY_COMPLETE:
                         case MOVE_COMPLETE:

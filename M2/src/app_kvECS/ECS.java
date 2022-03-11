@@ -15,6 +15,8 @@ import java.util.Date;
 import java.util.Stack;
 import java.util.TreeMap;
 import java.util.Iterator;
+import java.util.HashMap;
+import java.util.ArrayList;
 
 import java.text.SimpleDateFormat;
 
@@ -55,6 +57,7 @@ public class ECS implements IECSClient {
     private boolean running = false;
     private static TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
     private Stack<String> available_servers = new Stack<String>();
+    private HashMap<String, String> movedServers = new HashMap<String, String>();
     private int zkPort;
     private int port;
     private String rawMetadata = "";
@@ -212,10 +215,6 @@ public class ECS implements IECSClient {
                     logger.info("Going to start " + path);
                     byte[] data = NodeEvent.START.name().getBytes();
                     _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
-                } else if (status == NodeEvent.COPY_COMPLETE) {
-                    logger.info("Going to move " + path);
-                    byte[] data = NodeEvent.MOVE.name().getBytes();
-                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
                 }
             }
 
@@ -327,10 +326,11 @@ public class ECS implements IECSClient {
             active_servers.put(hash, node);
 
             // Check if any move events have to take place:
-            String[] movedData = moveData(String.format("%s/%s", _rootZnode, serverInfo[0]));
+            String[] movedData = moveData(serverInfo[0], false);
             if (movedData != null) {
                 logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
                 try {
+                    movedServers.put(movedData[3], movedData[0]);
                     String data = NodeEvent.COPY.name() + "~"
                             + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
 
@@ -470,51 +470,48 @@ public class ECS implements IECSClient {
 
     // Remove a specific server
     public boolean removeNode(String serverName) {
-        for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
+        String path = String.format("%s/%s", _rootZnode, serverName);
+        Map.Entry<String, ECSNode> entry = getEntry(serverName);
+        if (entry != null) {
             String key = entry.getKey();
             ECSNode node = entry.getValue();
-            String path = String.format("%s/%s", _rootZnode, node.getNodeName());
-            if (path.equals(serverName)) {
-                try {
+            try {
+                // Check if any move events have to take place:
+                String[] movedData = moveData(serverName, true);
+                if (movedData != null) {
+                    logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
+                    movedServers.put(movedData[3], movedData[0]);
+                    try {
+                        String data = NodeEvent.COPY.name() + "~"
+                                + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
 
-                    // HERE
-                    // Check if any move events have to take place:
-                    String[] movedData = moveData(String.format("%s/%s", _rootZnode, serverName));
-                    if (movedData != null) {
-                        logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
-                        try {
-                            String data = NodeEvent.COPY.name() + "~"
-                                    + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
-
-                            byte[] dataBytes = data.getBytes();
-                            _zooKeeper.setData(movedData[0], dataBytes,
-                                    _zooKeeper.exists(movedData[0], false).getVersion());
-                        } catch (Exception e) {
-                            logger.error("Error while sending move data");
-                            logger.error(e.getMessage());
-                        }
+                        byte[] dataBytes = data.getBytes();
+                        _zooKeeper.setData(movedData[0], dataBytes,
+                                _zooKeeper.exists(movedData[0], false).getVersion());
+                    } catch (Exception e) {
+                        logger.error("Error while sending move data");
+                        logger.error(e.getMessage());
                     }
-
-                    if (_zooKeeper.exists(path, false) != null) {
-                        byte[] data = NodeEvent.SHUTDOWN.name().getBytes();
-                        _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
-                    }
-                    logger.info("Removed " + serverName);
-                    active_servers.remove(key);
-
-                    updateMetadata();
-
-                    return true;
-                } catch (Exception e) {
-                    logger.error("Error while removing node!");
-
-                    StringWriter sw = new StringWriter();
-                    PrintWriter pw = new PrintWriter(sw);
-                    e.printStackTrace(pw);
-                    logger.error(sw.toString());
-
-                    return false;
                 }
+
+                if (_zooKeeper.exists(path, false) != null) {
+                    byte[] data = NodeEvent.SHUTDOWN.name().getBytes();
+                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+                }
+                logger.info("Removed " + serverName);
+                active_servers.remove(key);
+
+                sendMetadata();
+
+                return true;
+            } catch (Exception e) {
+                logger.error("Error while removing node!");
+
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                e.printStackTrace(pw);
+                logger.error(sw.toString());
+
             }
         }
 
@@ -545,6 +542,8 @@ public class ECS implements IECSClient {
                     logger.info("Node removal of " + node.getNodeName());
                     iter.remove();
 
+                    // TODO: Recalc the ring and hash and broadcast once more
+
                     if (shutdown) {
                         completeShutdown();
                     }
@@ -554,12 +553,13 @@ public class ECS implements IECSClient {
                     NodeEvent status = NodeEvent.valueOf(new String(recvData,
                             "UTF-8").split("~")[0]);
 
-                    if (status == NodeEvent.BOOT || status == NodeEvent.BOOT_COMPLETE) {
+                    if (status == NodeEvent.BOOT) {
                         // Node was created
-                        logger.info("New node created at: " + path);
+                        logger.info("Server still booting:" + path);
                         // Subscribe to it
                         _zooKeeper.exists(path,
                                 true);
+                        sendMetadata(path);
                     }
                 }
             } catch (Exception e) {
@@ -578,29 +578,45 @@ public class ECS implements IECSClient {
         return true;
     }
 
-    private String[] moveData(String path) {
-        String serverName = path.substring(path.lastIndexOf("/") + 1);
-
+    private Map.Entry<String, ECSNode> getEntry(String serverName) {
         for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
-            String key = entry.getKey();
             ECSNode node = entry.getValue();
 
             if (node.getNodeName().equals(serverName)) {
-                Map.Entry<String, ECSNode> successor = active_servers.higherEntry(key);
-                // If it wraps around:
-                if (successor == null) {
-                    successor = active_servers.firstEntry();
-                }
-                ECSNode successorVal = successor.getValue();
-                if (successorVal.getNodeName().equals(serverName)) {
-                    return null;
-                }
+                return entry;
+            }
+        }
+
+        return null;
+    }
+
+    private String[] moveData(String serverName, boolean delete) {
+        Map.Entry<String, ECSNode> entry = getEntry(serverName);
+
+        if (entry != null) {
+            String key = entry.getKey();
+            ECSNode node = entry.getValue();
+
+            Map.Entry<String, ECSNode> successor = active_servers.higherEntry(key);
+            // If it wraps around:
+            if (successor == null) {
+                successor = active_servers.firstEntry();
+            }
+            ECSNode successorVal = successor.getValue();
+            if (successorVal.getNodeName().equals(serverName)) {
+                return null;
+            }
+            String lower = active_servers.lowerKey(key);
+            if (lower == null) {
+                lower = active_servers.lastKey();
+            }
+
+            if (delete) {
+                String znode = String.format("%s/%s", _rootZnode, serverName);
+                return new String[] { znode, lower, successor.getKey(), successorVal.getNodeName() };
+            } else {
                 String znode = String.format("%s/%s", _rootZnode, successorVal.getNodeName());
-                String lower = active_servers.lowerKey(key);
-                if (lower == null) {
-                    lower = active_servers.lastKey();
-                }
-                return new String[] { znode, lower, key, node.getNodeName() };
+                return new String[] { znode, lower, key, serverName };
             }
         }
 
@@ -627,25 +643,6 @@ public class ECS implements IECSClient {
             serverData.add(node.getMeta());
         }
         rawMetadata = String.join(",", serverData);
-    }
-
-    public void sendMetadataBooted() {
-        try {
-            for (IECSNode node : active_servers.values()) {
-                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
-                byte[] recvData = _zooKeeper.getData(path,
-                        false, null);
-                NodeEvent status = NodeEvent.valueOf(new String(recvData,
-                        "UTF-8").split("~")[0]);
-
-                if (status == NodeEvent.BOOT_COMPLETE) {
-                    sendMetadata(path);
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error while getting data from ZooKeeper");
-            logger.error(e.getMessage());
-        }
     }
 
     public void sendMetadata(String path) {
@@ -680,7 +677,31 @@ public class ECS implements IECSClient {
             }
         } catch (Exception e) {
             logger.error("Error while broadcasting metadata");
-            logger.error(e.getMessage());
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
+        }
+    }
+
+    public void completeBoot(String serverName) {
+        String movedServer = movedServers.get(serverName.substring(serverName.lastIndexOf("/") + 1));
+        try {
+            if (movedServer != null) {
+                logger.info("Going to complete the move in: " + movedServer);
+                byte[] data = NodeEvent.MOVE.name().getBytes();
+                _zooKeeper.setData(movedServer, data, _zooKeeper.exists(movedServer, false).getVersion());
+
+                movedServers.remove(serverName);
+            }
+        } catch (Exception e) {
+            logger.error("Error while completing boot for: " + movedServer);
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
         }
     }
 
@@ -688,4 +709,35 @@ public class ECS implements IECSClient {
         System.out.println(PROMPT + "Error! " + error);
     }
 
+    public void shutDownECS() {
+        try {
+            if (shutdown()) {
+                // Delete the ZooKeeper root node
+                _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
+                        false).getVersion());
+
+                System.exit(0);
+            } else {
+                logger.error("Encountered error while shutting down!");
+            }
+        } catch (Exception e) {
+            logger.error("Error while shutting down ECS");
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
+        }
+    }
+
+    public String listNodes() {
+        ArrayList<String> nodeList = new ArrayList<String>();
+        for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
+            ECSNode node = entry.getValue();
+            String path = node.getNodeName();
+            nodeList.add(path);
+        }
+
+        return String.join(",", nodeList);
+    }
 }

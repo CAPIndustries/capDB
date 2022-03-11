@@ -10,6 +10,8 @@ import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.StringWriter;
+import java.io.PrintWriter;
 
 import java.net.Socket;
 
@@ -108,8 +110,15 @@ public class ECSClient {
             } else {
                 printError("Expected 0 arguments");
             }
+        } else if (tokens[0].equals("quit")) {
+            if (tokens.length == 1) {
+                quitCommand();
+            } else {
+                printError("Expected 0 arguments");
+            }
         } else {
-            String[] connectedCommands = { "start", "addNodes", "stop", "shutDown", "addNode", "removeNode" };
+            String[] connectedCommands = { "start", "addNodes", "stop", "shutDown", "shutDownECS", "addNode",
+                    "removeNode" };
 
             if (Arrays.asList(connectedCommands).contains(tokens[0])) {
                 if (clientSocket == null) {
@@ -147,6 +156,12 @@ public class ECSClient {
                 } else {
                     printError("Expected 0 arguments");
                 }
+            } else if (tokens[0].equals("shutDownECS")) {
+                if (tokens.length == 1) {
+                    shutdownECSCommand();
+                } else {
+                    printError("Expected 0 arguments");
+                }
             } else if (tokens[0].equals("addNode")) {
                 if (tokens.length == 1) {
                     addNodesCommand(1, DEFAULT_CACHE_STRATEGY.name(),
@@ -177,6 +192,11 @@ public class ECSClient {
         } catch (Exception e) {
             logger.info("Unable to connect to " + address + " on port " + port);
             clientSocket = null;
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
         }
     }
 
@@ -191,7 +211,12 @@ public class ECSClient {
             // if (res.getStatus() == StatusType.) {
             // }
         } catch (Exception e) {
+            logger.error("Error while sending addNodes command");
 
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
         }
     }
 
@@ -206,7 +231,12 @@ public class ECSClient {
             // if (res.getStatus() == StatusType.) {
             // }
         } catch (Exception e) {
+            logger.error("Error while sending start command");
 
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
         }
     }
 
@@ -221,7 +251,12 @@ public class ECSClient {
             // if (res.getStatus() == StatusType.) {
             // }
         } catch (Exception e) {
+            logger.error("Error while sending stop command");
 
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
         }
     }
 
@@ -236,7 +271,28 @@ public class ECSClient {
             // if (res.getStatus() == StatusType.) {
             // }
         } catch (Exception e) {
+            logger.error("Error while sending shutDown command");
 
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
+        }
+    }
+
+    private void shutdownECSCommand() {
+        try {
+            byte msgBytes[] = { StatusType.SHUTDOWN_ECS.getVal() };
+            KVMessage msg = new KVMessage(msgBytes);
+            sendMessage(msg);
+            setRunning(false);
+        } catch (Exception e) {
+            logger.error("Error while sending shutDownECS command");
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
         }
     }
 
@@ -251,7 +307,31 @@ public class ECSClient {
             // if (res.getStatus() == StatusType.) {
             // }
         } catch (Exception e) {
+            logger.error("Error while sending removeNode command");
 
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
+        }
+    }
+
+    private void quitCommand() {
+        try {
+            if (clientSocket != null) {
+                input.close();
+                output.close();
+                clientSocket.close();
+                clientSocket = null;
+            }
+            setRunning(false);
+        } catch (Exception e) {
+            printError("Error while quitting ECSClient!");
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
         }
     }
 
@@ -282,6 +362,9 @@ public class ECSClient {
         sb.append(
                 "\t\t stops the service; all participating KVServers are stopped for processing client requests but the processes remain running.\n");
         sb.append(PROMPT).append("shutDown");
+        sb.append(
+                "\t\t stops the service; all participating KVServers are stopped for processing client requests but the processes remain running. And shuts down the ECS server.\n");
+        sb.append(PROMPT).append("shutDownECS");
         sb.append("\t\t stops all server instances and exits the remote processes.\n");
         sb.append(PROMPT).append("addNode");
         sb.append(
@@ -292,6 +375,9 @@ public class ECSClient {
         sb.append(PROMPT).append("logLevel <level>");
 
         sb.append("ALL | DEBUG | INFO | WARN | ERROR | FATAL | OFF \n");
+
+        sb.append(PROMPT).append("quit");
+        sb.append("\t\t exits the program");
 
         sb.append(PROMPT).append("help");
         sb.append("\t\t shows this help menu\n");
