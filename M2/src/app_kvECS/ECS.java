@@ -58,17 +58,17 @@ public class ECS implements IECSClient {
 
     private static Logger logger = Logger.getRootLogger();
     private static final String PROMPT = "ECS> ";
-    private boolean shutdown = false;
+    private static boolean shutdown = false;
     private boolean running = false;
-    private TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
+    private static TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
     private Stack<String> available_servers = new Stack<String>();
     private int zkPort;
     private int port;
     private String rawMetadata = "";
     private ServerSocket serverSocket;
 
-    public ZooKeeper _zooKeeper = null;
-    public String _rootZnode = "/servers";
+    public static ZooKeeper _zooKeeper = null;
+    public static String _rootZnode = "/servers";
 
     /**
      * Main entry point for the ECS application.
@@ -88,6 +88,24 @@ public class ECS implements IECSClient {
                 int zkPort = Integer.parseInt(args[1]);
                 String config = args[2];
                 ECS app = new ECS(port, zkPort, config);
+                final Thread mainThread = Thread.currentThread();
+                Runtime.getRuntime().addShutdownHook(new Thread() {
+                    public void run() {
+                        try {
+                            terminate();
+                            // Delete the ZooKeeper root node
+                            _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
+                                    false).getVersion());
+                        } catch (Exception e) {
+                            logger.error("Error while completing the shutdown");
+
+                            StringWriter sw = new StringWriter();
+                            PrintWriter pw = new PrintWriter(sw);
+                            e.printStackTrace(pw);
+                            logger.error(sw.toString());
+                        }
+                    }
+                });
                 app.run();
             }
         } catch (IOException e) {
@@ -261,6 +279,30 @@ public class ECS implements IECSClient {
         }
     }
 
+    private static void terminate() {
+        try {
+            logger.info("Terminating program ...");
+
+            // Send SHUTDOWN event to all participating servers
+            byte[] data = NodeEvent.SHUTDOWN.name().getBytes();
+            boolean res = broadcastData(data);
+            if (!res) {
+                logger.error("Could not broadcast SHUTDOWN event!");
+                return;
+            }
+
+            shutdown = true;
+            completeShutdown();
+        } catch (Exception e) {
+            logger.error(e);
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
+        }
+    }
+
     @Override
     public IECSNode addNode(String cacheStrategy, int cacheSize) {
         logger.info("Attempting to add a node ...");
@@ -383,7 +425,7 @@ public class ECS implements IECSClient {
         }
     }
 
-    private boolean broadcastData(byte[] data) {
+    private static boolean broadcastData(byte[] data) {
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
@@ -404,17 +446,11 @@ public class ECS implements IECSClient {
         }
     }
 
-    private void completeShutdown() {
+    private static void completeShutdown() {
         try {
             if (active_servers.size() == 0) {
                 logger.info("All remote servers closed. Shutting down ECS ....");
-                // Delete the ZooKeeper root node
-                // _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
-                // false).getVersion());
-
-                // _zooKeeper.close();
                 logger.info(PROMPT + "All servers shut down!");
-                // System.exit(0);
             } else {
                 logger.info("Waiting on " + active_servers.size() + " to shutdown ...");
             }
