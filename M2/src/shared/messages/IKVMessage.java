@@ -21,9 +21,17 @@ public interface IKVMessage {
 							 * Request not successful, server not responsible for key
 							 */
 		INITIAL_METADATA(
-				(byte) 14); /*
+				(byte) 14), /*
 							 * Upon successful client connection, send metadata to inform client
 							 */
+		ADD_NODES((byte) 15),
+		START((byte) 16),
+		STOP((byte) 17),
+		SHUTDOWN((byte) 18),
+		REMOVE_NODE((byte) 19),
+		LIST((byte) 20),
+		ACK((byte) 21),
+		NACK((byte) 21);
 
 		private final byte val;
 

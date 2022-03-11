@@ -12,7 +12,7 @@ import org.apache.log4j.Logger;
 
 import ecs.IECSNode.NodeEvent;
 
-import app_kvECS.ECSClient;
+import app_kvECS.ECS;
 
 import logger.LogSetup;
 
@@ -20,9 +20,9 @@ public class ZooKeeperWatcher implements Watcher {
 
     private static Logger logger = Logger.getRootLogger();
 
-    private ECSClient caller = null;
+    private ECS caller = null;
 
-    public ZooKeeperWatcher(ECSClient caller) {
+    public ZooKeeperWatcher(ECS caller) {
         this.caller = caller;
     }
 
