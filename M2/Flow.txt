@@ -8,21 +8,24 @@
     - Gets added to the pending start & active_servers (since we need it for the hash ring)
 2. Input: 'start'
     - For each server in pendingStart:
-        - Check if any move has to take place, and starts COPYING the data over to the newly created server:
+        - Send a 'START' event to the newly created server
+        - Start the copying process from the successor node to the newly created node
             - Lock the server
-            - Delete the COPIED data
+            - COPY the data to the newly created server
+            - Send 'COPY_COMPLETE' event to the ECS indicating that the COPY was complete
+        - After the copying has completed, the successor node will:
             - Unlock the server
-            - Send 'MOVE_COMPLETE' event to the ECS indicating that the MOVE was complete
-        - Send a 'START' event
-    - Once all the moves have happened (we received an equal number of ACK's), update the ECS METADATA,
-    since the newly started server(s) are now running and can serve requests
+            - Delete the copied files
+    - If the ECS server receives a 'COPY_COMPLETE' it removes the successor node from its list of movedServers
+    - Once all the moves have happened (we received an equal number of ACK's, which equates to a movedServers
+    count of 0), update the ECS METADATA, since the newly started server(s) are now running and can serve requests
     - Broadcast the metadata to all the active servers, even the newly added ones (since data might be stale)
 3. Input: 'removeNode'
     - For the soon-to-deleted server:
         - Lock the server
-        - Move the data from the server to the successor server
-        - Once the move is complete, delete the files and storage directory
-    - Once completed, it will shutdown its ZooKeeper instance
+        - COPY the data from the server to the successor server
+        - Once the COPY is complete, delete the files and storage directory
+    - Once completed, the server will shutdown its ZooKeeper instance
     - The ECS Server will notice the absence of the zk node and will then update its internal METADATA
     - Then, the ECS Server will broadcast the updated metadata to all the servers
     - Finally, add that deleted server back to the list of available servers
