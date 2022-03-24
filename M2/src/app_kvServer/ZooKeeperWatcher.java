@@ -1,5 +1,8 @@
 package app_kvServer;
 
+import java.io.StringWriter;
+import java.io.PrintWriter;
+
 import org.apache.zookeeper.Watcher;
 import org.apache.zookeeper.WatchedEvent;
 import org.apache.zookeeper.Watcher.Event.EventType;
@@ -45,11 +48,21 @@ public class ZooKeeperWatcher implements Watcher {
                 } else {
                     logger.info("Successfully connected to ZK server!");
                 }
+                try {
+                    // Since notifications are a one time thing, we must reset the watcher
+                    String watchPath = String.format("%s/%s", caller._rootZnode, caller.name);
+                    logger.info("Resetting watchers on " + watchPath + " ...");
+                    caller._zooKeeper.getData(watchPath, this, null);
+                } catch (Exception e) {
+                    logger.error("Error while resetting watcher!");
+                    logger.error(e.getMessage());
+                }
                 break;
             case NodeDataChanged:
                 try {
+                    // Get data + resubscribe back to watcher
                     byte[] dataBytes = caller._zooKeeper.getData(path,
-                            false, null);
+                            true, null);
                     String recv = new String(dataBytes,
                             "UTF-8");
                     logger.info("ZooKeeper Notification:" + recv);
@@ -57,7 +70,7 @@ public class ZooKeeperWatcher implements Watcher {
 
                     switch (NodeEvent.valueOf(data[0])) {
                         case METADATA:
-                            caller.initKVServer(data[1]);
+                            caller.loadMetadata(data[1]);
                             break;
                         case START:
                             caller.start();
@@ -68,6 +81,8 @@ public class ZooKeeperWatcher implements Watcher {
                         case SHUTDOWN:
                             caller.shutDown();
                             if (data.length == 1) {
+                                // This is intended for a full ECS server shutdown
+                                // Hence, no need to move any data
                                 caller.completeShutdown();
                                 break;
                             }
@@ -84,26 +99,19 @@ public class ZooKeeperWatcher implements Watcher {
                         case BOOT:
                         case METADATA_COMPLETE:
                         case COPY_COMPLETE:
-                        case MOVE_COMPLETE:
                             break;
                         default:
                             logger.error("Unrecognized node event:" + data[0]);
                     }
                 } catch (Exception e) {
                     logger.error("Error while getting data");
-                    logger.error(e.getMessage());
+
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    e.printStackTrace(pw);
+                    logger.error(sw.toString());
                 }
                 break;
-        }
-
-        try {
-            String watchPath = String.format("%s/%s", caller._rootZnode, caller.name);
-            logger.info("Resetting watchers on " + watchPath + " ...");
-            // Since notifications are a one time thing, we must reset the watcher
-            caller._zooKeeper.getData(watchPath, this, null);
-        } catch (Exception e) {
-            logger.error("Error while resetting watcher!");
-            logger.error(e.getMessage());
         }
     }
 

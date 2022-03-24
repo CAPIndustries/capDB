@@ -1,5 +1,8 @@
 package app_kvECS;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
+
 import java.util.List;
 
 import org.apache.zookeeper.Watcher;
@@ -51,6 +54,7 @@ public class ZooKeeperWatcher implements Watcher {
                 try {
                     logger.info("Node data update");
                     // Resubscribe below:
+                    logger.info("Resubscribing back to " + path);
                     byte[] dataBytes = caller._zooKeeper.getData(path,
                             true, null);
                     String recv = new String(dataBytes,
@@ -61,9 +65,6 @@ public class ZooKeeperWatcher implements Watcher {
                     switch (NodeEvent.valueOf(data[0])) {
                         case METADATA_COMPLETE:
                             logger.info("Metadata ACK!");
-                            break;
-                        case MOVE_COMPLETE:
-                            caller.sendMetadata();
                             break;
                         case COPY_COMPLETE:
                             caller.completeCopy(path);
@@ -80,13 +81,13 @@ public class ZooKeeperWatcher implements Watcher {
                         default:
                             logger.error("Unrecognized node event:" + data[0]);
                     }
-
-                    // Resubscribe back:
-                    // logger.info("Resubscribing back to " + path);
-                    // caller._zooKeeper.exists(path, true);
                 } catch (Exception e) {
                     logger.error("Error while getting data");
-                    logger.error(e.getMessage());
+
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    e.printStackTrace(pw);
+                    logger.error(sw.toString());
                 }
                 break;
             case NodeChildrenChanged:
@@ -96,6 +97,7 @@ public class ZooKeeperWatcher implements Watcher {
 
                 // Resubscribe back:
                 try {
+                    logger.info("Resubscribing back to children");
                     caller._zooKeeper.getChildren(caller._rootZnode,
                             true);
                 } catch (Exception e) {

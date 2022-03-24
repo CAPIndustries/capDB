@@ -251,7 +251,7 @@ public class ClientConnection implements Runnable {
 
 		String serverList = server.listNodes();
 
-		KVMessage msg = new KVMessage("none", serverList, StatusType.PUT);
+		KVMessage msg = new KVMessage("none", serverList, StatusType.ACK);
 		return msg;
 	}
 

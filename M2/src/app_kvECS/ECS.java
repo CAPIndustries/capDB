@@ -59,7 +59,7 @@ public class ECS implements IECSClient {
     private static TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
     private Stack<String> available_servers = new Stack<String>();
     private HashMap<String, String> movedServers = new HashMap<String, String>();
-    private HashSet<String> pendingStart = new HashSet<String>();
+    private HashMap<String, ECSNode> pendingStart = new HashMap<String, ECSNode>();
     private int zkPort;
     private int port;
     private String rawMetadata = "";
@@ -200,31 +200,40 @@ public class ECS implements IECSClient {
     @Override
     public boolean start() {
         try {
-            for (IECSNode node : active_servers.values()) {
+            for (Map.Entry<String, ECSNode> entry : pendingStart.entrySet()) {
+
+                String key = entry.getKey();
+                ECSNode node = entry.getValue();
                 String path = String.format("%s/%s", _rootZnode, node.getNodeName());
 
-                // Only send a 'START' to the servers that are ready to be started (i.e. have
-                // their metadata)
-                byte[] recvData = _zooKeeper.getData(path,
-                        false, null);
-                NodeEvent status = NodeEvent.valueOf(new String(recvData,
-                        "UTF-8").split("~")[0]);
+                // Check if any move events have to take place, and issue them:
+                String[] movedData = moveData(node.getNodeName(), false);
+                if (movedData != null) {
+                    logger.info("Have to move some data from: " + movedData[0] + " to " + node.getNodeName());
+                    movedServers.put(movedData[0], node.getNodeName());
+                    String data = NodeEvent.COPY.name() + "~"
+                            + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
 
-                if (status == NodeEvent.METADATA_COMPLETE) {
-                    pendingStart.remove(path);
-                    logger.info("Checking if move server.. Path: " + path);
-                    logger.info("Check result: " + movedServers.containsKey(node.getNodeName()));
-                    if (movedServers.containsKey(node.getNodeName())) {
-                        logger.info("Pending start: " + path);
-                        // Finish move here
-                        String movePath = movedServers.get(path);
-                        logger.info("Move path: " + movePath);
-                        completeCopy(movePath);
-                    }
-                    logger.info("Going to start " + path);
-                    byte[] data = NodeEvent.START.name().getBytes();
-                    _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+                    byte[] dataBytes = data.getBytes();
+                    _zooKeeper.setData(movedData[0], dataBytes,
+                            _zooKeeper.exists(movedData[0], false).getVersion());
+                } else {
+                    logger.info("No move events for " + node.getNodeName());
                 }
+
+                logger.info("Going to start " + path);
+                byte[] data = NodeEvent.START.name().getBytes();
+                // TODO: Should I subscribe here?
+                _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+            }
+
+            if (movedServers.size() == 0) {
+                logger.info("No move events!");
+                pendingStart.clear();
+                updateMetadata();
+                sendMetadata();
+            } else {
+                logger.info("Have to wait for " + movedServers.size() + " servers to finish moving data ...");
             }
 
             return true;
@@ -241,7 +250,7 @@ public class ECS implements IECSClient {
 
     @Override
     public boolean stop() {
-        logger.info("Broadcasting shutdown event to all participating servers ...");
+        logger.info("Broadcasting STOP event to all participating servers ...");
         byte[] data = NodeEvent.STOP.name().getBytes();
 
         boolean res = broadcastData(data);
@@ -265,6 +274,7 @@ public class ECS implements IECSClient {
                 return false;
             }
 
+            shutdown = true;
             completeShutdown();
 
             return true;
@@ -331,26 +341,8 @@ public class ECS implements IECSClient {
             }
 
             logger.info("Added:" + serverInfo[0] + "(" + serverInfo[1] + ":" + serverInfo[2] + ")");
+            pendingStart.put(hash, node);
             active_servers.put(hash, node);
-            pendingStart.add(node.getNodeName());
-
-            // Check if any move events have to take place:
-            String[] movedData = moveData(serverInfo[0], false);
-            if (movedData != null) {
-                logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
-                try {
-                    movedServers.put(movedData[3], movedData[0]);
-                    String data = NodeEvent.COPY.name() + "~"
-                            + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
-
-                    byte[] dataBytes = data.getBytes();
-                    _zooKeeper.setData(movedData[0], dataBytes,
-                            _zooKeeper.exists(movedData[0], false).getVersion());
-                } catch (Exception e) {
-                    logger.error("Error while sending move data");
-                    logger.error(e.getMessage());
-                }
-            }
 
             return node;
         } catch (Exception e) {
@@ -370,7 +362,10 @@ public class ECS implements IECSClient {
 
         ArrayList<IECSNode> nodes = new ArrayList<IECSNode>();
         for (int i = 0; i < count; ++i) {
-            nodes.add(addNode(cacheStrategy, cacheSize));
+            IECSNode newNode = addNode(cacheStrategy, cacheSize);
+            if (newNode != null) {
+                nodes.add(newNode);
+            }
         }
 
         return nodes;
@@ -406,14 +401,14 @@ public class ECS implements IECSClient {
     }
 
     @Override
-    public IECSNode getNodeByKey(String Key) {
+    public IECSNode getNodeByKey(String key) {
         try {
             if (available_servers.size() == 0) {
                 return null;
             }
 
             MessageDigest md = MessageDigest.getInstance("MD5");
-            md.update(Key.getBytes());
+            md.update(key.getBytes());
             byte[] digest = md.digest();
 
             BigInteger bi = new BigInteger(1, digest);
@@ -497,7 +492,7 @@ public class ECS implements IECSClient {
                 String data = NodeEvent.SHUTDOWN.name();
                 if (movedData != null) {
                     logger.info("Have to move some data from: " + movedData[0] + " to " + movedData[3]);
-                    movedServers.put(movedData[3], movedData[0]);
+                    movedServers.put(movedData[0], movedData[3]);
                     try {
                         data += "~" + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
 
@@ -513,9 +508,6 @@ public class ECS implements IECSClient {
                 byte[] dataBytes = data.getBytes();
                 _zooKeeper.setData(path, dataBytes, _zooKeeper.exists(path, false).getVersion());
                 logger.info("Removed " + serverName);
-                active_servers.remove(key);
-
-                sendMetadata();
 
                 return true;
             } catch (Exception e) {
@@ -556,10 +548,18 @@ public class ECS implements IECSClient {
                     logger.info("Node removal of " + node.getNodeName());
                     iter.remove();
 
-                    // TODO: Recalc the ring and hash and broadcast once more
-
                     if (shutdown) {
                         completeShutdown();
+                    } else {
+                        // Broadcast the updated metadata
+                        updateMetadata();
+                        sendMetadata();
+
+                        // Add it back to the list of available servers
+                        String nodeConfig = String.format("%s %s %s", node.getNodeName(), node.getNodeHost(),
+                                node.getNodePort());
+                        logger.info("Re adding back: " + nodeConfig);
+                        available_servers.push(nodeConfig);
                     }
                 } else {
                     byte[] recvData = _zooKeeper.getData(path,
@@ -573,7 +573,7 @@ public class ECS implements IECSClient {
                         // Subscribe to it
                         _zooKeeper.exists(path,
                                 true);
-                        sendMetadata(path);
+                        // sendMetadata(path);
                     }
                 }
             } catch (Exception e) {
@@ -637,6 +637,7 @@ public class ECS implements IECSClient {
     }
 
     private void updateMetadata() {
+        logger.info("Updating internal ECS metadata ...");
         // Update lower bounds now that all the participating servers have booted
         // Then, gather all server data
         List<String> serverData = new ArrayList();
@@ -656,12 +657,12 @@ public class ECS implements IECSClient {
             serverData.add(node.getMeta());
         }
         rawMetadata = String.join(",", serverData);
+        logger.info("Updated metadata: " + rawMetadata);
     }
 
     public void sendMetadata(String path) {
         logger.info("Sending metadata to " + path + " ...");
 
-        updateMetadata();
         String metadata = NodeEvent.METADATA.name() + "~" + rawMetadata;
         byte[] data = metadata.getBytes();
         logger.info("Sending:" + metadata);
@@ -676,10 +677,9 @@ public class ECS implements IECSClient {
     public void sendMetadata() {
         logger.info("Broadcasting metadata to all participating servers ...");
 
-        updateMetadata();
         String metadata = NodeEvent.METADATA.name() + "~" + rawMetadata;
         byte[] data = metadata.getBytes();
-        logger.info("Sending:" + metadata);
+        logger.info("Broadcasting:" + metadata);
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
@@ -698,30 +698,26 @@ public class ECS implements IECSClient {
     }
 
     public void completeCopy(String path) {
-        String serverName = path.substring(path.lastIndexOf("/") + 1);
-        String movedServer = null;
-        for (Map.Entry<String, String> server : movedServers.entrySet()) {
-            String key = server.getKey();
-            String value = server.getValue();
-            logger.info("Found Key:" + key + " Value: " + value);
-            if (value.equals(path)) {
-                movedServer = key;
-                break;
-            }
-        }
+        logger.info("Completing the move ...");
+        String movedServer = movedServers.get(path);
+
         try {
-            logger.info("Contains:" + pendingStart.contains(movedServer));
-            if (movedServer == null || (movedServer != null && !pendingStart.contains(movedServer))) {
+            if (movedServer != null) {
                 logger.info("Going to complete the move in: " + movedServer);
                 byte[] data = NodeEvent.MOVE.name().getBytes();
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
 
-                movedServers.remove(movedServer);
+                movedServers.remove(path);
 
-                updateMetadata();
+                if (movedServers.size() == 0) {
+                    // All moves have been issued. Now we can broadcast the UPDATED metadata
+                    pendingStart.clear();
+                    updateMetadata();
+                    sendMetadata();
+                }
             }
         } catch (Exception e) {
-            logger.error("Error while completing boot for: " + serverName);
+            logger.error("Error while completing boot for: " + path);
 
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
@@ -752,9 +748,19 @@ public class ECS implements IECSClient {
     public String listNodes() {
         ArrayList<String> nodeList = new ArrayList<String>();
         for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
+            String key = entry.getKey();
             ECSNode node = entry.getValue();
-            String path = node.getNodeName();
-            nodeList.add(path);
+            String serverName = node.getNodeName();
+            if (pendingStart.containsKey(key)) {
+                nodeList.add(serverName + " (Pending)");
+            } else {
+                nodeList.add(serverName + " (Active)");
+            }
+        }
+
+        for (String key : available_servers) {
+            String serverName = key.split("\\s+")[0];
+            nodeList.add(serverName + " (Inactive)");
         }
 
         return String.join(",", nodeList);

@@ -117,7 +117,8 @@ public class KVStore implements KVCommInterface {
 	}
 
 	private void buildMetadata(String data) {
-		logger.info("Received metadata. Rebuilding ...");
+		logger.info("Received metadata: " + data);
+		logger.info("Rebuilding ...");
 		String[] serverData = data.split(",");
 		for (String server : serverData) {
 			String[] serverInfo = server.split(":");

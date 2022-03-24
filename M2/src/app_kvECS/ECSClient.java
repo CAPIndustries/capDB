@@ -118,7 +118,7 @@ public class ECSClient {
             }
         } else {
             String[] connectedCommands = { "start", "addNodes", "stop", "shutDown", "shutDownECS", "addNode",
-                    "removeNode" };
+                    "removeNode", "list" };
 
             if (Arrays.asList(connectedCommands).contains(tokens[0])) {
                 if (clientSocket == null) {
@@ -169,6 +169,12 @@ public class ECSClient {
                 } else {
                     printError("Expected 0 arguments");
                 }
+            } else if (tokens[0].equals("list")) {
+                if (tokens.length == 1) {
+                    listNodesCommand();
+                } else {
+                    printError("Expected 0 arguments");
+                }
             } else if (tokens[0].equals("removeNode")) {
                 if (tokens.length == 2) {
                     removeNodeCommand(tokens[1]);
@@ -207,9 +213,12 @@ public class ECSClient {
             sendMessage(msg);
 
             KVMessage res = receiveMessage();
-            // TODO: Check for errors here:
-            // if (res.getStatus() == StatusType.) {
-            // }
+            if (res.getStatus() == StatusType.ACK) {
+
+                System.out.println(PROMPT + "Node(s) added:\n" + res.getValue());
+            } else {
+                printError("Error while adding nodes");
+            }
         } catch (Exception e) {
             logger.error("Error while sending addNodes command");
 
@@ -303,11 +312,36 @@ public class ECSClient {
             sendMessage(msg);
 
             KVMessage res = receiveMessage();
-            // TODO: Check for errors here:
-            // if (res.getStatus() == StatusType.) {
-            // }
+            if (res.getStatus() == StatusType.ACK) {
+                System.out.println(PROMPT + "Successfully deleted " + serverPath);
+            } else {
+                printError("Could not remove:" + serverPath);
+                printError("Please make sure the node exists & is running!");
+            }
         } catch (Exception e) {
             logger.error("Error while sending removeNode command");
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
+        }
+    }
+
+    private void listNodesCommand() {
+        try {
+            byte msgBytes[] = { StatusType.LIST.getVal() };
+            KVMessage msg = new KVMessage(msgBytes);
+            sendMessage(msg);
+
+            KVMessage res = receiveMessage();
+            if (res.getStatus() == StatusType.ACK) {
+                System.out.println(PROMPT + "Servers:\n" + res.getValue().replace(",", "\n"));
+            } else {
+                printError("Error while listing nodes");
+            }
+        } catch (Exception e) {
+            logger.error("Error while sending listNodes command");
 
             StringWriter sw = new StringWriter();
             PrintWriter pw = new PrintWriter(sw);
@@ -349,28 +383,39 @@ public class ECSClient {
         sb.append(PROMPT);
         sb.append("::::::::::::::::::::::::::::::::");
         sb.append("::::::::::::::::::::::::::::::::\n");
+
         sb.append(PROMPT).append("connect <ECS Address> <ECS Port>");
         sb.append(
                 "\t\t connect to the ECS server at <ECS Address> on port <ECS port>.\n");
-        sb.append(PROMPT).append("addNodes <numberOfNodes>");
-        sb.append(
-                "\t\t randomly choose <numberOfNodes> servers from the available machines and start the KVServer by issuing an SSH call to the respective machine. This call launches the storage server. For simplicity, locate the KVServer.jar in the same directory as the ECS. All storage servers are initialized with the metadata and any persisted data, and remain in state stopped.\n");
-        sb.append(PROMPT).append("start");
-        sb.append(
-                "\t\t starts the storage service by calling start() on all KVServer instances that participate in the service.\n");
-        sb.append(PROMPT).append("stop");
-        sb.append(
-                "\t\t stops the service; all participating KVServers are stopped for processing client requests but the processes remain running.\n");
-        sb.append(PROMPT).append("shutDown");
-        sb.append(
-                "\t\t stops the service; all participating KVServers are stopped for processing client requests but the processes remain running. And shuts down the ECS server.\n");
-        sb.append(PROMPT).append("shutDownECS");
-        sb.append("\t\t stops all server instances and exits the remote processes.\n");
+
         sb.append(PROMPT).append("addNode");
         sb.append(
                 "\t\t create a new KVServer and add it to the storage service at an arbitrary position.\n");
-        sb.append(PROMPT).append("removeNode <ZooKeeper path of server>");
+
+        sb.append(PROMPT).append("addNodes <numberOfNodes>");
+        sb.append(
+                "\t\t randomly choose <numberOfNodes> servers from the available machines and start the KVServer by issuing an SSH call to the respective machine. This call launches the storage server. For simplicity, locate the KVServer.jar in the same directory as the ECS. All storage servers are initialized with the metadata and any persisted data, and remain in state stopped.\n");
+
+        sb.append(PROMPT).append("start");
+        sb.append(
+                "\t\t starts the storage service by calling start() on all KVServer instances that participate in the service.\n");
+
+        sb.append(PROMPT).append("stop");
+        sb.append(
+                "\t\t stops the service; all participating KVServers are stopped for processing client requests but the processes remain running.\n");
+
+        sb.append(PROMPT).append("shutDown");
+        sb.append(
+                "\t\t stops the service; all participating KVServers are stopped for processing client requests but the processes remain running. And shuts down the ECS server.\n");
+
+        sb.append(PROMPT).append("removeNode <server name>");
         sb.append("\t\t remove a server from the storage service at an arbitrary position.\n");
+
+        sb.append(PROMPT).append("list");
+        sb.append("\t\t shows a list of all the servers (active + inactive).\n");
+
+        sb.append(PROMPT).append("shutDownECS");
+        sb.append("\t\t stops all server instances and exits the remote processes.\n");
 
         sb.append(PROMPT).append("logLevel <level>");
 

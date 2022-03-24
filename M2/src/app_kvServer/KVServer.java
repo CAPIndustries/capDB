@@ -64,11 +64,11 @@ public class KVServer implements IKVServer {
 	private int zkPort;
 	private CacheStrategy strategy;
 	private ServerSocket serverSocket;
-	private Status status = Status.STOPPED;
+	private Status status = Status.BOOT;
 	private String storageDirectory;
 	private TreeMap<String, ECSNode> metadata = new TreeMap<String, ECSNode>();
 	private String rawMetadata;
-	private ArrayList<String> movedItems = new ArrayList<String>();;
+	private ArrayList<String> movedItems = new ArrayList<String>();
 	private boolean shutdown = false;
 
 	public ZooKeeper _zooKeeper = null;
@@ -131,7 +131,7 @@ public class KVServer implements IKVServer {
 		} else {
 			logger.info("Spinning until server boots ...");
 			// Keep spinning until signalled to start
-			while (getStatus() == Status.STOPPED)
+			while (getStatus() == Status.BOOT)
 				;
 
 			logger.info("Stopped spinning. Attempting to run server ...");
@@ -585,7 +585,7 @@ public class KVServer implements IKVServer {
 			logger.info("Checking for root storage directory at " + rootStorageDirectory.getCanonicalPath());
 			// Ensure storage directory exists
 			if (!rootStorageDirectory.exists()) {
-				logger.info("Storage directory does not exist. Creating new directory ...");
+				logger.info("Root storage directory does not exist. Creating new directory ...");
 				rootStorageDirectory.mkdir();
 			}
 
@@ -647,8 +647,11 @@ public class KVServer implements IKVServer {
 
 	@Override
 	public void start() {
-		if (getStatus() == Status.STOPPED) {
+		if (getStatus() == Status.BOOT) {
 			setStatus(Status.STARTED);
+		} else if (getStatus() == Status.STOPPED) {
+			setStatus(Status.STARTED);
+			run();
 		}
 	}
 
@@ -751,14 +754,13 @@ public class KVServer implements IKVServer {
 	}
 
 	@Override
-	public void moveData(String[] range, String serverName) {
-		// Move the data to the destination server, but lock this server first
+	public void moveData(String[] range, String destServer) {
+		// Move the data to the destination server
+		logger.info("Moving to " + destServer + ". And locking server ...");
 		setStatus(Status.LOCKED);
-		logger.info("Locking server & moving data");
-		logger.info("Moving from " + serverName);
 
 		File dir = new File(this.storageDirectory);
-		String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, serverName);
+		String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, destServer);
 		File destDir = new File(dest);
 		if (!destDir.exists()) {
 			logger.info("Destination directory does not exist. Creating new directory ...");
@@ -794,7 +796,11 @@ public class KVServer implements IKVServer {
 			}
 		}
 
-		setNodeData(NodeEvent.COPY_COMPLETE.name());
+		if (shutdown) {
+			completeMove();
+		} else {
+			setNodeData(NodeEvent.COPY_COMPLETE.name());
+		}
 	}
 
 	public void completeMove() {
@@ -802,8 +808,8 @@ public class KVServer implements IKVServer {
 
 		for (String item : movedItems) {
 			try {
-				logger.info("Deleting" + item);
-				File itemFile = new File(this.storageDirectory + item);
+				logger.info("Deleting " + item);
+				File itemFile = new File(storageDirectory + item);
 				itemFile.delete();
 			} catch (Exception e) {
 				logger.error("Error while trying to delete file");
@@ -813,11 +819,12 @@ public class KVServer implements IKVServer {
 
 		logger.info("Deletion completed");
 		if (shutdown) {
+			File dir = new File(this.storageDirectory);
+			dir.delete();
 			completeShutdown();
 		} else {
 			movedItems.clear();
 			setStatus(Status.STARTED);
-			setNodeData(NodeEvent.MOVE_COMPLETE.name());
 		}
 	}
 
@@ -830,7 +837,7 @@ public class KVServer implements IKVServer {
 	}
 
 	public void loadMetadata(String data) {
-		if (rawMetadata.isEmpty()) {
+		if (rawMetadata == null || rawMetadata.isEmpty()) {
 			initKVServer(data);
 		} else {
 			update(data);
