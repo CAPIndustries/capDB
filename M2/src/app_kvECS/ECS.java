@@ -39,7 +39,7 @@ import org.apache.log4j.Level;
 
 import logger.LogSetup;
 import app_kvServer.IKVServer.CacheStrategy;
-
+import app_kvServer.IKVServer.Status;
 import app_kvECS.ZooKeeperWatcher;
 
 import ecs.ECSNode;
@@ -59,7 +59,6 @@ public class ECS implements IECSClient {
     private static TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
     private Stack<String> available_servers = new Stack<String>();
     private HashMap<String, String> movedServers = new HashMap<String, String>();
-    private HashMap<String, ECSNode> pendingStart = new HashMap<String, ECSNode>();
     private int zkPort;
     private int port;
     private String rawMetadata = "";
@@ -146,6 +145,12 @@ public class ECS implements IECSClient {
         } catch (Exception e) {
             printError("Cannot start ZooKeeper!");
             logger.fatal("Cannot start ZooKeeper!");
+
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            logger.error(sw.toString());
+
             System.exit(1);
         }
         logger.info("Running ...");
@@ -200,36 +205,44 @@ public class ECS implements IECSClient {
     @Override
     public boolean start() {
         try {
-            for (Map.Entry<String, ECSNode> entry : pendingStart.entrySet()) {
-
+            for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
                 String key = entry.getKey();
                 ECSNode node = entry.getValue();
+                // Only start the servers that are in the BOOT stage
+                if (node.getStatus() != Status.BOOT) {
+                    continue;
+                }
                 String path = String.format("%s/%s", _rootZnode, node.getNodeName());
 
                 // Check if any move events have to take place, and issue them:
                 String[] movedData = moveData(node.getNodeName(), false);
                 if (movedData != null) {
-                    logger.info("Have to move some data from: " + movedData[0] + " to " + node.getNodeName());
-                    movedServers.put(movedData[0], node.getNodeName());
-                    String data = NodeEvent.COPY.name() + "~"
-                            + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
-
-                    byte[] dataBytes = data.getBytes();
-                    _zooKeeper.setData(movedData[0], dataBytes,
-                            _zooKeeper.exists(movedData[0], false).getVersion());
+                    IECSNode movedServer = getNodeByKey(movedData[0]);
+                    if (movedServer != null && movedServer.getStatus() == Status.STARTED) {
+                        logger.info("Have to move some data from: " + movedData[0] + " to " + node.getNodeName());
+                        movedServers.put(movedData[0], node.getNodeName());
+                        String data = NodeEvent.COPY.name() + "~"
+                                + String.join(",", Arrays.copyOfRange(movedData, 1, movedData.length));
+                        byte[] dataBytes = data.getBytes();
+                        _zooKeeper.setData(movedData[0], dataBytes,
+                                _zooKeeper.exists(movedData[0], false).getVersion());
+                    } else {
+                        logger.info("Not moving since " + movedData[0] + " has not booted");
+                    }
                 } else {
                     logger.info("No move events for " + node.getNodeName());
                 }
 
                 logger.info("Going to start " + path);
                 byte[] data = NodeEvent.START.name().getBytes();
+                node.setStatus(Status.STARTED);
+                active_servers.put(key, node);
                 // TODO: Should I subscribe here?
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
             }
 
             if (movedServers.size() == 0) {
                 logger.info("No move events!");
-                pendingStart.clear();
                 updateMetadata();
                 sendMetadata();
             } else {
@@ -341,7 +354,6 @@ public class ECS implements IECSClient {
             }
 
             logger.info("Added:" + serverInfo[0] + "(" + serverInfo[1] + ":" + serverInfo[2] + ")");
-            pendingStart.put(hash, node);
             active_servers.put(hash, node);
 
             return node;
@@ -534,19 +546,22 @@ public class ECS implements IECSClient {
     }
 
     public boolean nodeRemovedCreated() {
-        Iterator<Map.Entry<String, ECSNode>> iter = active_servers.entrySet().iterator();
+        Iterator<Map.Entry<String, ECSNode>> active_iter = active_servers.entrySet().iterator();
 
-        while (iter.hasNext()) {
-            Map.Entry<String, ECSNode> entry = iter.next();
+        while (active_iter.hasNext()) {
+            Map.Entry<String, ECSNode> entry = active_iter.next();
 
             String key = entry.getKey();
             ECSNode node = entry.getValue();
             String path = String.format("%s/%s", _rootZnode, node.getNodeName());
             try {
+                // Node was (possibly) deleted
                 if (_zooKeeper.exists(path, false) == null) {
-                    // Node was deleted
+                    if (node.getStatus() == Status.ADDED) {
+                        continue;
+                    }
                     logger.info("Node removal of " + node.getNodeName());
-                    iter.remove();
+                    active_iter.remove();
 
                     if (shutdown) {
                         completeShutdown();
@@ -561,20 +576,12 @@ public class ECS implements IECSClient {
                         logger.info("Re adding back: " + nodeConfig);
                         available_servers.push(nodeConfig);
                     }
-                } else {
-                    byte[] recvData = _zooKeeper.getData(path,
-                            false, null);
-                    NodeEvent status = NodeEvent.valueOf(new String(recvData,
-                            "UTF-8").split("~")[0]);
-
-                    if (status == NodeEvent.BOOT) {
-                        // Node was created
-                        logger.info("New node at:" + path);
-                        // Subscribe to it
-                        _zooKeeper.exists(path,
-                                true);
-                        // sendMetadata(path);
-                    }
+                }
+                // Node was (possibly) added
+                else if (node.getStatus() == Status.ADDED) {
+                    logger.info("Node addition of " + node.getNodeName());
+                    node.setStatus(Status.BOOT);
+                    active_servers.put(key, node);
                 }
             } catch (Exception e) {
                 logger.error("Error while checking for removed nodes");
@@ -711,7 +718,6 @@ public class ECS implements IECSClient {
 
                 if (movedServers.size() == 0) {
                     // All moves have been issued. Now we can broadcast the UPDATED metadata
-                    pendingStart.clear();
                     updateMetadata();
                     sendMetadata();
                 }
@@ -747,11 +753,9 @@ public class ECS implements IECSClient {
 
     public String listNodes() {
         ArrayList<String> nodeList = new ArrayList<String>();
-        for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
-            String key = entry.getKey();
-            ECSNode node = entry.getValue();
+        for (ECSNode node : active_servers.values()) {
             String serverName = node.getNodeName();
-            if (pendingStart.containsKey(key)) {
+            if (node.getStatus() == Status.ADDED) {
                 nodeList.add(serverName + " (Pending)");
             } else {
                 nodeList.add(serverName + " (Active)");

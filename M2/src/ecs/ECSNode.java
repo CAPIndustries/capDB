@@ -9,6 +9,8 @@ import org.apache.log4j.Level;
 
 import logger.LogSetup;
 
+import app_kvServer.IKVServer.Status;
+
 public class ECSNode implements IECSNode {
 
     private static Logger logger = Logger.getRootLogger();
@@ -18,6 +20,7 @@ public class ECSNode implements IECSNode {
     private int port;
     private int zkPort = -1;
     private String[] hashRange;
+    private Status status = Status.ADDED;
 
     public ECSNode(String name, String host, int port, int zkPort, String[] hashRange) {
         try {
@@ -71,6 +74,7 @@ public class ECSNode implements IECSNode {
                     }
                 }
             }).start();
+
             return true;
         } catch (Exception e) {
             e.printStackTrace();
@@ -124,6 +128,16 @@ public class ECSNode implements IECSNode {
     @Override
     public String[] getNodeHashRange() {
         return hashRange;
+    }
+
+    @Override
+    public void setStatus(Status status) {
+        this.status = status;
+    }
+
+    @Override
+    public Status getStatus() {
+        return status;
     }
 
 }

@@ -1,5 +1,7 @@
 package ecs;
 
+import app_kvServer.IKVServer.Status;
+
 public interface IECSNode {
 
     public enum NodeEvent {
@@ -33,5 +35,9 @@ public interface IECSNode {
      *         node is responsible for
      */
     public String[] getNodeHashRange();
+
+    public void setStatus(Status status);
+
+    public Status getStatus();
 
 }
