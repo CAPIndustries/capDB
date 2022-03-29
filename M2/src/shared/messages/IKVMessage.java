@@ -20,7 +20,7 @@ public interface IKVMessage {
 				(byte) 13), /*
 							 * Request not successful, server not responsible for key
 							 */
-		INITIAL_METADATA(
+		METADATA(
 				(byte) 14), /*
 							 * Upon successful client connection, send metadata to inform client
 							 */

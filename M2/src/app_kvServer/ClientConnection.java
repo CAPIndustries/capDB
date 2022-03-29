@@ -179,7 +179,7 @@ public class ClientConnection implements Runnable {
 			// Must send the initial metadata
 			KVMessage metadataMessage = new KVMessage("0",
 					this.server.getMetadata(),
-					StatusType.INITIAL_METADATA);
+					StatusType.METADATA);
 			sendMessage(metadataMessage);
 			logger.info("Sent metadata");
 		} catch (Exception e) {

@@ -10,6 +10,7 @@ import java.net.SocketTimeoutException;
 
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.Iterator;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
@@ -55,7 +56,8 @@ public class KVStore implements KVCommInterface {
 	private int missedHeartbeats = 0;
 	public int output_port;
 	private TreeMap<String, ECSNode> metadata = null;
-	private boolean reconnect = false;
+	private boolean reconnect_responsibly = false;
+	private boolean reconnect_closed = false;
 
 	/**
 	 * Initialize KVStore with address and port of KVServer
@@ -70,18 +72,29 @@ public class KVStore implements KVCommInterface {
 
 	@Override
 	public void connect() throws UnknownHostException, IOException {
-		if (!reconnect) {
+		if (!reconnect_responsibly) {
 			System.out.println(PROMPT + "Trying to connect ...");
 		}
 		logger.info("Trying to connect ...");
 
-		clientSocket = new Socket(address, port);
-		clientSocket.setSoTimeout(RESPONSE_TIME);
-		output = clientSocket.getOutputStream();
-		input = clientSocket.getInputStream();
-		output_port = clientSocket.getLocalPort();
-		setLastResponse(System.currentTimeMillis());
-		setRunning(true);
+		try {
+			clientSocket = new Socket(address, port);
+			clientSocket.setSoTimeout(RESPONSE_TIME);
+			output = clientSocket.getOutputStream();
+			input = clientSocket.getInputStream();
+			output_port = clientSocket.getLocalPort();
+			setLastResponse(System.currentTimeMillis());
+			setRunning(true);
+		} catch (Exception e) {
+			if (reconnect_closed) {
+				reconnect();
+			} else {
+				logger.error("Server closed on initial connection!");
+			}
+			return;
+		}
+
+		reconnect_closed = false;
 		logger.info("Connected");
 
 		// Get initial metadata
@@ -110,7 +123,7 @@ public class KVStore implements KVCommInterface {
 			scheduleHeartbeat();
 		}
 
-		if (!reconnect) {
+		if (!reconnect_responsibly) {
 			System.out.println(PROMPT + "Connected!");
 		}
 		logger.info("Connection established to " + address + " on port " + port);
@@ -143,7 +156,7 @@ public class KVStore implements KVCommInterface {
 	@Override
 	public void disconnect() {
 		try {
-			if (!reconnect) {
+			if (!reconnect_responsibly) {
 				System.out.println(PROMPT + "Trying to disconnect ...");
 			}
 			logger.info("Trying to disconnect ...");
@@ -153,7 +166,7 @@ public class KVStore implements KVCommInterface {
 				output.close();
 				clientSocket.close();
 				clientSocket = null;
-				if (!reconnect) {
+				if (!reconnect_responsibly) {
 					System.out.println(PROMPT + "Connection closed!");
 				}
 				logger.info("Connection closed!");
@@ -189,7 +202,7 @@ public class KVStore implements KVCommInterface {
 		} else {
 			if (res.getStatus() == StatusType.SERVER_NOT_RESPONSIBLE) {
 				logger.info("Got a server unresponsible for put!");
-				if (reconnect(res.getValue(), key)) {
+				if (responsible_connect(res.getValue(), key)) {
 					// Try it again:
 					return put(key, value);
 				}
@@ -223,7 +236,7 @@ public class KVStore implements KVCommInterface {
 		} else {
 			if (res.getStatus() == StatusType.SERVER_NOT_RESPONSIBLE) {
 				logger.info("Got a server unresponsible for get!");
-				if (reconnect(res.getValue(), key)) {
+				if (responsible_connect(res.getValue(), key)) {
 					// Try it again:
 					return get(key);
 				}
@@ -233,8 +246,8 @@ public class KVStore implements KVCommInterface {
 		return res;
 	}
 
-	private boolean reconnect(String data, String key) {
-		reconnect = true;
+	private boolean responsible_connect(String data, String key) {
+		reconnect_responsibly = true;
 		logger.info("Reconnecting ...");
 		// Update our version of the metadata
 		buildMetadata(data);
@@ -263,7 +276,7 @@ public class KVStore implements KVCommInterface {
 			disconnect();
 			connect();
 
-			reconnect = false;
+			reconnect_responsibly = false;
 			return true;
 		} catch (Exception e) {
 			logger.error("Error while trying to obtain correct server");
@@ -295,6 +308,7 @@ public class KVStore implements KVCommInterface {
 						setMissedHeartbeats(missedHeartbeats + 1);
 						if (missedHeartbeats > HEARTBEAT_RETRIES) {
 							disconnect("Server unresponsive... Shutting down!");
+							reconnect();
 						} else {
 							if (missedHeartbeats == 1) {
 								System.out.println();
@@ -334,6 +348,42 @@ public class KVStore implements KVCommInterface {
 		} catch (IOException ioe) {
 			printError("Unable to close connection!");
 			logger.error("Unable to close connection!", ioe);
+		}
+	}
+
+	public void reconnect() {
+		logger.info("Trying to find a server to reconnect to");
+		// Reconnect to the suggested server
+		Iterator<Map.Entry<String, ECSNode>> iter = metadata.entrySet().iterator();
+		ECSNode next_available = null;
+		boolean found = false;
+		while (iter.hasNext()) {
+			Map.Entry<String, ECSNode> entry = iter.next();
+
+			String key = entry.getKey();
+			ECSNode node = entry.getValue();
+			if (this.port == node.getNodePort()) {
+				iter.remove();
+				found = true;
+			} else {
+				next_available = node;
+			}
+			if (next_available != null && found) {
+				break;
+			}
+		}
+		if (next_available == null) {
+			logger.info("No more (known) servers available ...");
+		} else {
+			this.address = next_available.getNodeHost();
+			this.port = next_available.getNodePort();
+			reconnect_closed = true;
+			try {
+				logger.info("Reconnnecting to " + this.address + ":" + this.port);
+				connect();
+			} catch (Exception e) {
+				logger.error("Error while reconnecting");
+			}
 		}
 	}
 
