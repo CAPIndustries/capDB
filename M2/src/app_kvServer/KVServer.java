@@ -69,7 +69,6 @@ public class KVServer implements IKVServer {
 	private TreeMap<String, ECSNode> metadata = new TreeMap<String, ECSNode>();
 	private String rawMetadata;
 	private ArrayList<String> movedItems = new ArrayList<String>();
-	private boolean shutdown = false;
 
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode = "/servers";
@@ -134,8 +133,12 @@ public class KVServer implements IKVServer {
 			while (getStatus() == Status.BOOT)
 				;
 
-			logger.info("Stopped spinning. Attempting to run server ...");
-			run();
+			logger.info("Stopped spinning.");
+			if (getStatus() == Status.STARTED) {
+				logger.info("Attempting to run server ...");
+				run();
+			}
+			logger.info("Server closed");
 		}
 	}
 
@@ -472,14 +475,12 @@ public class KVServer implements IKVServer {
 	@Override
 	public void close() {
 		logger.info("Closing server ...");
-		setStatus(Status.STOPPED);
 		try {
 			if (serverSocket != null) {
 				serverSocket.close();
 				serverSocket = null;
 			}
-			logger.info("Server closed");
-			System.exit(0);
+			setStatus(Status.STOPPED);
 		} catch (IOException e) {
 			logger.error("Error! " + "Unable to close socket on port: " + port, e);
 		}
@@ -668,26 +669,18 @@ public class KVServer implements IKVServer {
 	@Override
 	public void shutDown() {
 		try {
-			logger.info("Shutting down server & ZooKeeper node ...");
-			shutdown = true;
+			logger.info("Shutting down server ...");
+			logger.info("Shutting down ZooKeeper ...");
+			_zooKeeper.close();
+
+			logger.info("Shutdown ZooKeeper. Deleting storage data ...");
+			File dir = new File(this.storageDirectory);
+			dir.delete();
+
+			close();
 		} catch (Exception e) {
 			logger.error("Error while shutting down server");
 			logger.error(e.getMessage());
-		}
-	}
-
-	public void completeShutdown() {
-		try {
-			close();
-			_zooKeeper.close();
-			logger.info("Shutdown ZooKeeper");
-		} catch (Exception e) {
-			logger.error("Error shutting down");
-
-			StringWriter sw = new StringWriter();
-			PrintWriter pw = new PrintWriter(sw);
-			e.printStackTrace(pw);
-			logger.error(sw.toString());
 		}
 	}
 
@@ -796,11 +789,7 @@ public class KVServer implements IKVServer {
 			}
 		}
 
-		if (shutdown) {
-			completeMove();
-		} else {
-			setNodeData(NodeEvent.COPY_COMPLETE.name());
-		}
+		setNodeData(NodeEvent.COPY_COMPLETE.name());
 	}
 
 	public void completeMove() {
@@ -818,14 +807,8 @@ public class KVServer implements IKVServer {
 		}
 
 		logger.info("Deletion completed");
-		if (shutdown) {
-			File dir = new File(this.storageDirectory);
-			dir.delete();
-			completeShutdown();
-		} else {
-			movedItems.clear();
-			setStatus(Status.STARTED);
-		}
+		movedItems.clear();
+		setStatus(Status.STARTED);
 	}
 
 	public synchronized Status getStatus() {
@@ -842,5 +825,47 @@ public class KVServer implements IKVServer {
 		} else {
 			update(data);
 		}
+	}
+
+	public void replicate(final String address, final int port, final String serverName) {
+		logger.info("Replicating this server's data to " + address + ":" + port);
+
+		final File dir = new File(this.storageDirectory);
+		final String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY,
+				serverName);
+		Thread replicateThread = new Thread(new Runnable() {
+			public void run() {
+				// TODO: Do SCP since servers could be in a different PC
+				logger.info("Replicating in new thread");
+				// Create a replica directory
+				String dest = String.format("%s/%s/replica", ROOT_STORAGE_DIRECTORY, serverName);
+				File destDir = new File(dest);
+				if (!destDir.exists()) {
+					logger.info("Replica destination directory does not exist. Creating new directory ...");
+					destDir.mkdirs();
+				}
+
+				File[] directoryListing = dir.listFiles();
+				for (File item : directoryListing) {
+					try {
+						logger.info("Replicating:" + item.getName());
+						logger.info("From: " + item.toPath());
+						logger.info("To: " + new File(dest + item.getName()).toPath());
+
+						Files.copy(item.toPath(),
+								new File(dest + item.getName()).toPath(),
+								StandardCopyOption.REPLACE_EXISTING);
+					} catch (Exception e) {
+						logger.error("Error while trying to replicate data");
+
+						StringWriter sw = new StringWriter();
+						PrintWriter pw = new PrintWriter(sw);
+						e.printStackTrace(pw);
+						logger.error(sw.toString());
+					}
+				}
+			}
+		});
+		replicateThread.start();
 	}
 }

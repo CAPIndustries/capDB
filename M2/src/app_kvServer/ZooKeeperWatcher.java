@@ -58,6 +58,9 @@ public class ZooKeeperWatcher implements Watcher {
                     logger.error(e.getMessage());
                 }
                 break;
+            case NodeDeleted:
+                caller.shutDown();
+                break;
             case NodeDataChanged:
                 try {
                     // Get data + resubscribe back to watcher
@@ -66,42 +69,41 @@ public class ZooKeeperWatcher implements Watcher {
                     String recv = new String(dataBytes,
                             "UTF-8");
                     logger.info("ZooKeeper Notification:" + recv);
-                    String[] data = recv.split("~");
+                    String[] reqs = recv.split("~~");
 
-                    switch (NodeEvent.valueOf(data[0])) {
-                        case METADATA:
-                            caller.loadMetadata(data[1]);
-                            break;
-                        case START:
-                            caller.start();
-                            break;
-                        case STOP:
-                            caller.stop();
-                            break;
-                        case SHUTDOWN:
-                            caller.shutDown();
-                            if (data.length == 1) {
-                                // This is intended for a full ECS server shutdown
-                                // Hence, no need to move any data
-                                caller.completeShutdown();
+                    // Loop in case there are piggyback requests
+                    for (String req : reqs) {
+                        String[] data = req.split("~");
+                        switch (NodeEvent.valueOf(data[0])) {
+                            case METADATA:
+                                caller.loadMetadata(data[1]);
                                 break;
-                            }
-                            // NOTE: This fallthrough is deliberate
-                        case COPY:
-                            String[] moveData = data[1].split(",");
-                            String[] range = { moveData[0], moveData[1] };
-                            caller.moveData(range, moveData[2]);
-                            break;
-                        case MOVE:
-                            caller.completeMove();
-                            break;
-                        // Ignored events:
-                        case BOOT:
-                        case METADATA_COMPLETE:
-                        case COPY_COMPLETE:
-                            break;
-                        default:
-                            logger.error("Unrecognized node event:" + data[0]);
+                            case START:
+                                caller.start();
+                                break;
+                            case STOP:
+                                caller.stop();
+                                break;
+                            case REPLICATE:
+                                String[] destination = data[1].split(":");
+                                caller.replicate(destination[0], Integer.parseInt(destination[1]), destination[2]);
+                                break;
+                            case COPY:
+                                String[] moveData = data[1].split(",");
+                                String[] range = { moveData[0], moveData[1] };
+                                caller.moveData(range, moveData[2]);
+                                break;
+                            case MOVE:
+                                caller.completeMove();
+                                break;
+                            // Ignored events:
+                            case BOOT:
+                            case METADATA_COMPLETE:
+                            case COPY_COMPLETE:
+                                break;
+                            default:
+                                logger.error("Unrecognized node event:" + data[0]);
+                        }
                     }
                 } catch (Exception e) {
                     logger.error("Error while getting data");

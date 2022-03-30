@@ -60,26 +60,30 @@ public class ZooKeeperWatcher implements Watcher {
                     String recv = new String(dataBytes,
                             "UTF-8");
                     logger.info("ZooKeeper Notification:" + recv);
-                    String[] data = recv.split("~");
+                    String[] reqs = recv.split("~~");
 
-                    switch (NodeEvent.valueOf(data[0])) {
-                        case METADATA_COMPLETE:
-                            logger.info("Metadata ACK!");
-                            break;
-                        case COPY_COMPLETE:
-                            caller.completeCopy(path);
-                            break;
-                        // Skip the following events:
-                        case START:
-                        case BOOT:
-                        case METADATA:
-                        case STOP:
-                        case SHUTDOWN:
-                        case COPY:
-                        case MOVE:
-                            break;
-                        default:
-                            logger.error("Unrecognized node event:" + data[0]);
+                    // There may be piggybacked requests
+                    for (String req : reqs) {
+                        String[] data = req.split("~");
+                        switch (NodeEvent.valueOf(data[0])) {
+                            case METADATA_COMPLETE:
+                                logger.info("Metadata ACK!");
+                                break;
+                            case COPY_COMPLETE:
+                                caller.completeCopy(path);
+                                break;
+                            // Skip the following events:
+                            case START:
+                            case BOOT:
+                            case METADATA:
+                            case STOP:
+                            case COPY:
+                            case MOVE:
+                            case REPLICATE:
+                                break;
+                            default:
+                                logger.error("Unrecognized node event:" + data[0]);
+                        }
                     }
                 } catch (Exception e) {
                     logger.error("Error while getting data");

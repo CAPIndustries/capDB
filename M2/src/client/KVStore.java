@@ -362,7 +362,7 @@ public class KVStore implements KVCommInterface {
 
 			String key = entry.getKey();
 			ECSNode node = entry.getValue();
-			if (this.port == node.getNodePort()) {
+			if (this.address == node.getNodeHost() && this.port == node.getNodePort()) {
 				iter.remove();
 				found = true;
 			} else {
