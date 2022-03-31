@@ -70,9 +70,6 @@ public class ZooKeeperWatcher implements Watcher {
                             for (String req : reqs) {
                                 String[] data = req.split("~");
                                 switch (NodeEvent.valueOf(data[0])) {
-                                    case METADATA_COMPLETE:
-                                        logger.info("Metadata ACK!");
-                                        break;
                                     case COPY_COMPLETE:
                                         caller.completeCopy(path);
                                         break;
@@ -83,8 +80,6 @@ public class ZooKeeperWatcher implements Watcher {
                                     case STOP:
                                     case COPY:
                                     case MOVE:
-                                    case REPLICATE:
-                                    case COORDINATE:
                                     case SHUTDOWN:
                                         break;
                                     default:
@@ -93,11 +88,7 @@ public class ZooKeeperWatcher implements Watcher {
                             }
                         } catch (Exception e) {
                             logger.error("Error while getting data");
-
-                            StringWriter sw = new StringWriter();
-                            PrintWriter pw = new PrintWriter(sw);
-                            e.printStackTrace(pw);
-                            logger.error(sw.toString());
+                            exceptionLogger(e);
                         }
                         break;
                     case NodeChildrenChanged:
@@ -112,6 +103,7 @@ public class ZooKeeperWatcher implements Watcher {
                                     true);
                         } catch (Exception e) {
                             logger.error("Error while resubscribing back to obtain children");
+                            exceptionLogger(e);
                         }
                         break;
                     default:
@@ -120,5 +112,12 @@ public class ZooKeeperWatcher implements Watcher {
             }
         });
         eventThread.start();
+    }
+
+    private void exceptionLogger(Exception e) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        e.printStackTrace(pw);
+        logger.error(sw.toString());
     }
 }

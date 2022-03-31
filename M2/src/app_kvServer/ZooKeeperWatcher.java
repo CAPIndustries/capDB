@@ -84,13 +84,6 @@ public class ZooKeeperWatcher implements Watcher {
                             case STOP:
                                 caller.stop();
                                 break;
-                            case REPLICATE:
-                                caller.replicate(data[1], false);
-                                break;
-                            case COORDINATE:
-                                String[] a = data[1].split(",");
-                                caller.coordinate(a[0], a[1]);
-                                break;
                             case COPY:
                                 String[] b = data[1].split(",");
                                 String[] range = { b[0], b[1] };
@@ -105,7 +98,6 @@ public class ZooKeeperWatcher implements Watcher {
                                 break;
                             // Ignored events:
                             case BOOT:
-                            case METADATA_COMPLETE:
                             case COPY_COMPLETE:
                                 break;
                             default:

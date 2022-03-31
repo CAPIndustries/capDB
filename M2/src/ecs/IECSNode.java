@@ -5,8 +5,7 @@ import app_kvServer.IKVServer.Status;
 public interface IECSNode {
 
     public enum NodeEvent {
-        BOOT, METADATA, METADATA_COMPLETE, START, COPY, COPY_COMPLETE, MOVE,
-        STOP, REPLICATE, COORDINATE, SHUTDOWN
+        BOOT, METADATA, START, COPY, COPY_COMPLETE, MOVE, STOP, SHUTDOWN
     };
 
     /**

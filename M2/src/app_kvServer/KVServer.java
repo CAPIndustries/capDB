@@ -224,11 +224,7 @@ public class KVServer implements IKVServer {
 			});
 		} catch (Exception e) {
 			logger.error("Error while deleting directory: " + deletedDirectory);
-
-			StringWriter sw = new StringWriter();
-			PrintWriter pw = new PrintWriter(sw);
-			e.printStackTrace(pw);
-			logger.error(sw.toString());
+			exceptionLogger(e);
 		}
 	}
 
@@ -329,6 +325,7 @@ public class KVServer implements IKVServer {
 			}
 		} catch (Exception e) {
 			logger.error(e);
+			exceptionLogger(e);
 			getStat = StatusType.GET_ERROR;
 		} finally {
 			if (queued) {
@@ -424,6 +421,7 @@ public class KVServer implements IKVServer {
 			} catch (Exception e) {
 				logger.info(clientPort + "> Deletion exception ...");
 				logger.error(e);
+				exceptionLogger(e);
 				putStat = StatusType.DELETE_ERROR;
 			}
 		} else {
@@ -453,6 +451,7 @@ public class KVServer implements IKVServer {
 				// Thread.sleep(1000);
 			} catch (Exception e) {
 				logger.error(e);
+				exceptionLogger(e);
 				putStat = StatusType.PUT_ERROR;
 			}
 		}
@@ -610,7 +609,8 @@ public class KVServer implements IKVServer {
 			return true;
 		} catch (Exception e) {
 			logger.error("Error encountered while creating ZooKeeper node!");
-			e.printStackTrace();
+			exceptionLogger(e);
+
 			return false;
 		}
 	}
@@ -636,6 +636,7 @@ public class KVServer implements IKVServer {
 			}
 		} catch (Exception e) {
 			logger.error(e);
+			exceptionLogger(e);
 		}
 	}
 
@@ -665,13 +666,10 @@ public class KVServer implements IKVServer {
 			} catch (Exception e) {
 				logger.error("Error while parsing metadata info, calculating hash of position");
 				logger.error(e.getMessage());
+				exceptionLogger(e);
+
 				return;
 			}
-		}
-
-		if (getStatus() == Status.STOPPED) {
-			// Send an ACK of the metadata receival
-			// setNodeData(NodeEvent.METADATA_COMPLETE.name());
 		}
 	}
 
@@ -718,7 +716,7 @@ public class KVServer implements IKVServer {
 			close();
 		} catch (Exception e) {
 			logger.error("Error while shutting down server");
-			logger.error(e.getMessage());
+			exceptionLogger(e);
 		}
 	}
 
@@ -813,7 +811,7 @@ public class KVServer implements IKVServer {
 			_zooKeeper.setData(path, dataBytes, _zooKeeper.exists(path, false).getVersion());
 		} catch (Exception e) {
 			logger.error("Error setting node data!");
-			logger.error(e.getMessage());
+			exceptionLogger(e);
 		}
 	}
 
@@ -843,7 +841,8 @@ public class KVServer implements IKVServer {
 			hash = String.format("%0" + (digest.length << 1) + "x", bi);
 		} catch (Exception e) {
 			logger.error("Error while trying to see if key " + key + " is in range");
-			logger.error(e.getMessage());
+			exceptionLogger(e);
+
 			return false;
 		}
 
@@ -897,11 +896,7 @@ public class KVServer implements IKVServer {
 				}
 			} catch (Exception e) {
 				logger.error("Error while trying to move keys");
-
-				StringWriter sw = new StringWriter();
-				PrintWriter pw = new PrintWriter(sw);
-				e.printStackTrace(pw);
-				logger.error(sw.toString());
+				exceptionLogger(e);
 			}
 		}
 
@@ -960,7 +955,7 @@ public class KVServer implements IKVServer {
 				itemFile.delete();
 			} catch (Exception e) {
 				logger.error("Error while trying to delete file");
-				logger.error(e.getMessage());
+				exceptionLogger(e);
 			}
 		}
 
@@ -986,7 +981,7 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	public void replicate(String destinations, final boolean pendingShutdown) {
+	private void replicate(String destinations, final boolean pendingShutdown) {
 		// TODO: When replicating, also be sure to check if any deleted items in the
 		// coordinator are deleted in the replica
 		String[] d = destinations.split(",");
@@ -1033,11 +1028,7 @@ public class KVServer implements IKVServer {
 									StandardCopyOption.REPLACE_EXISTING);
 						} catch (Exception e) {
 							logger.error("Error while trying to replicate data");
-
-							StringWriter sw = new StringWriter();
-							PrintWriter pw = new PrintWriter(sw);
-							e.printStackTrace(pw);
-							logger.error(sw.toString());
+							exceptionLogger(e);
 						}
 					}
 					logger.info("Replication complete in " + serverName + "!");
@@ -1054,78 +1045,15 @@ public class KVServer implements IKVServer {
 				}
 			} catch (Exception e) {
 				logger.error("Error while waiting for replication threads to complete!");
-
-				StringWriter sw = new StringWriter();
-				PrintWriter pw = new PrintWriter(sw);
-				e.printStackTrace(pw);
-				logger.error(sw.toString());
+				exceptionLogger(e);
 			}
 		}
 	}
 
-	public void coordinate(String prevKey, String prevName) {
-		// This node was replica 1 to prevCoordinator. Now it's the coordinator
-		// Therefore, it needs to replicate its data 2 levels down in the ring
-		logger.info("Taking over as coordinator from " + prevName);
-		Map.Entry<String, ECSNode> after1 = metadata.higherEntry(prevKey);
-		if (after1 == null) {
-			after1 = metadata.firstEntry();
-		}
-		Map.Entry<String, ECSNode> after2 = metadata.higherEntry(after1.getKey());
-		if (after2 == null) {
-			after2 = metadata.firstEntry();
-		}
-
-		if (after1.getKey() == after2.getKey() || after2.getKey() == nameHash) {
-			logger.info("No more servers to replicate to.");
-			return;
-		}
-
-		final String address = after2.getValue().getNodeHost();
-		final int port = after2.getValue().getNodePort();
-		final String serverName = after2.getValue().getNodeName();
-		logger.info("Replicating this server's data to " + address + ":" + port);
-
-		final File dir = new File(this.storageDirectory);
-		final String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY,
-				serverName);
-		Thread replicateThread = new Thread(new Runnable() {
-			public void run() {
-				// TODO: Do SCP since servers could be in a different PC
-				logger.info("Replicating for new coordinator in new thread");
-				// Create a replica directory
-				String dest = String.format("%s/%s/replica_%s/", ROOT_STORAGE_DIRECTORY, serverName, name);
-				File destDir = new File(dest);
-				if (!destDir.exists()) {
-					logger.info("Replica destination directory does not exist. Creating new directory ...");
-					destDir.mkdirs();
-				}
-
-				File[] directoryListing = dir.listFiles();
-				for (File item : directoryListing) {
-					try {
-						if (item.isDirectory()) {
-							continue;
-						}
-						logger.info("Replicating:" + item.getName());
-						logger.info("From: " + item.toPath());
-						logger.info("To: " + new File(dest + item.getName()).toPath());
-
-						Files.copy(item.toPath(),
-								new File(dest + item.getName()).toPath(),
-								StandardCopyOption.REPLACE_EXISTING);
-					} catch (Exception e) {
-						logger.error("Error while trying to replicate data");
-
-						StringWriter sw = new StringWriter();
-						PrintWriter pw = new PrintWriter(sw);
-						e.printStackTrace(pw);
-						logger.error(sw.toString());
-					}
-				}
-				logger.info("Replication for new coordinator complete!");
-			}
-		});
-		replicateThread.start();
+	private static void exceptionLogger(Exception e) {
+		StringWriter sw = new StringWriter();
+		PrintWriter pw = new PrintWriter(sw);
+		e.printStackTrace(pw);
+		logger.error(sw.toString());
 	}
 }

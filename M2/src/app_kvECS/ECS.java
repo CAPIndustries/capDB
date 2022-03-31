@@ -17,7 +17,6 @@ import java.util.TreeMap;
 import java.util.Iterator;
 import java.util.HashMap;
 import java.util.ArrayList;
-import java.util.HashSet;
 
 import java.text.SimpleDateFormat;
 
@@ -95,11 +94,7 @@ public class ECS implements IECSClient {
                             terminate();
                         } catch (Exception e) {
                             logger.error("Error while completing the shutdown");
-
-                            StringWriter sw = new StringWriter();
-                            PrintWriter pw = new PrintWriter(sw);
-                            e.printStackTrace(pw);
-                            logger.error(sw.toString());
+                            exceptionLogger(e);
                         }
                     }
                 });
@@ -107,7 +102,7 @@ public class ECS implements IECSClient {
             }
         } catch (IOException e) {
             System.out.println("Error! Unable to initialize logger!");
-            e.printStackTrace();
+            exceptionLogger(e);
             System.exit(1);
         }
     }
@@ -135,7 +130,7 @@ public class ECS implements IECSClient {
             // calls to random)
             myReader.close();
         } catch (Exception e) {
-            e.printStackTrace();
+            exceptionLogger(e);
         }
     }
 
@@ -148,11 +143,7 @@ public class ECS implements IECSClient {
         } catch (Exception e) {
             printError("Cannot start ZooKeeper!");
             logger.fatal("Cannot start ZooKeeper!");
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
 
             System.exit(1);
         }
@@ -169,6 +160,7 @@ public class ECS implements IECSClient {
                         + client.getPort());
             } catch (IOException e) {
                 logger.error("Error! " + "Unable to establish connection. \n", e);
+                exceptionLogger(e);
             }
         }
     }
@@ -184,11 +176,7 @@ public class ECS implements IECSClient {
             if (e instanceof BindException) {
                 logger.error("Port " + port + " is already bound!");
             }
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
 
             System.exit(1);
         }
@@ -251,11 +239,7 @@ public class ECS implements IECSClient {
                     Thread.sleep(500);
                 } catch (Exception e) {
                     logger.error("Error while sleeping for node start");
-
-                    StringWriter sw = new StringWriter();
-                    PrintWriter pw = new PrintWriter(sw);
-                    e.printStackTrace(pw);
-                    logger.error(sw.toString());
+                    exceptionLogger(e);
                 }
 
                 logger.info("No move events!");
@@ -269,51 +253,10 @@ public class ECS implements IECSClient {
                     if (node.getStatus() == Status.BOOT) {
                         String key = entry.getKey();
 
-                        // HashMap<String, String> piggy = replica_added(key, node);
-                        // for (Map.Entry<String, String> pEntry : piggy.entrySet()) {
-                        // String pKey = pEntry.getKey();
-                        // String pValue = pEntry.getValue();
-                        // ArrayList<String> entries = new ArrayList<String>();
-                        // entries.add(pValue);
-                        // if (piggies.containsKey(pKey)) {
-                        // entries.addAll(piggies.get(pKey));
-                        // }
-                        // piggies.put(pKey, entries);
-                        // }
-
                         node.setStatus(Status.STARTED);
                         active_servers.put(key, node);
                     }
                 }
-
-                // Coordinators have to be the one to issue the replication
-                // Since metadata was updated, we must broadcast the update to all the servers
-                // However, we could piggyback the replica updates on the same request
-                // for (ECSNode node : active_servers.values()) {
-                // String destPath = String.format("%s/%s", _rootZnode, node.getNodeName());
-                // if (piggies.containsKey(destPath)) {
-                // ArrayList<String> piggy = piggies.get(destPath);
-                // String piggyString = NodeEvent.REPLICATE.name() + "~" + String.join(",",
-                // piggy);
-                // String piggybacked = NodeEvent.METADATA.name() + "~" + rawMetadata;
-                // piggybacked += "~~" + piggyString;
-                // byte[] data = piggybacked.getBytes();
-                // logger.info("Sending piggyback to " + destPath + " " + piggybacked);
-                // try {
-                // _zooKeeper.setData(destPath, data, _zooKeeper.exists(destPath,
-                // false).getVersion());
-                // } catch (Exception e) {
-                // logger.error("Error while piggyback of metadata & transfer to " + destPath);
-
-                // StringWriter sw = new StringWriter();
-                // PrintWriter pw = new PrintWriter(sw);
-                // e.printStackTrace(pw);
-                // logger.error(sw.toString());
-                // }
-                // } else {
-                // sendMetadata(destPath);
-                // }
-                // }
                 sendMetadata();
             } else {
                 logger.info("Have to wait for " + movedServers.size() + " servers to finish moving data ...");
@@ -324,11 +267,8 @@ public class ECS implements IECSClient {
 
         Exception e) {
             logger.error("Error starting server!");
+            exceptionLogger(e);
 
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
             return false;
         }
     }
@@ -357,11 +297,8 @@ public class ECS implements IECSClient {
             return true;
         } catch (Exception e) {
             logger.error(e);
+            exceptionLogger(e);
 
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
             return false;
         }
     }
@@ -374,11 +311,7 @@ public class ECS implements IECSClient {
             completeShutdown();
         } catch (Exception e) {
             logger.error(e);
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
         }
     }
 
@@ -415,11 +348,8 @@ public class ECS implements IECSClient {
             return node;
         } catch (Exception e) {
             logger.error(e);
+            exceptionLogger(e);
 
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
             return null;
         }
     }
@@ -436,11 +366,7 @@ public class ECS implements IECSClient {
                 Thread.sleep(500);
             } catch (Exception e) {
                 logger.error("Error while sleeping for new nodes");
-
-                StringWriter sw = new StringWriter();
-                PrintWriter pw = new PrintWriter(sw);
-                e.printStackTrace(pw);
-                logger.error(sw.toString());
+                exceptionLogger(e);
             }
 
             if (newNode != null) {
@@ -492,7 +418,7 @@ public class ECS implements IECSClient {
             return null;
         } catch (Exception e) {
             logger.error(e);
-            e.printStackTrace();
+            exceptionLogger(e);
             return null;
         }
     }
@@ -509,11 +435,8 @@ public class ECS implements IECSClient {
             return true;
         } catch (Exception e) {
             logger.error("Error while shutting down");
+            exceptionLogger(e);
 
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
             return false;
         }
     }
@@ -547,11 +470,7 @@ public class ECS implements IECSClient {
             }
         } catch (Exception e) {
             logger.error("Error while completing the shutdown");
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
         }
     }
 
@@ -613,12 +532,7 @@ public class ECS implements IECSClient {
                 return true;
             } catch (Exception e) {
                 logger.error("Error while removing node!");
-
-                StringWriter sw = new StringWriter();
-                PrintWriter pw = new PrintWriter(sw);
-                e.printStackTrace(pw);
-                logger.error(sw.toString());
-
+                exceptionLogger(e);
             }
         }
 
@@ -672,42 +586,6 @@ public class ECS implements IECSClient {
                     } else {
                         // Broadcast the updated metadata
                         updateMetadata();
-
-                        // Since we have to send the transfer data as well, we'll piggyback it
-                        // HashMap<String, String> r_piggies = replica_removed(key);
-                        // String[] c_piggy = coordinate_node(key, node);
-
-                        // for (ECSNode destNode : active_servers.values()) {
-                        // // Check if it needs to be piggybacked
-                        // String destPath = String.format("%s/%s", _rootZnode, destNode.getNodeName());
-                        // String piggyBacked = null;
-                        // if (r_piggies.containsKey(destPath)) {
-                        // String piggy = r_piggies.get(destPath);
-                        // piggyBacked = NodeEvent.METADATA.name() + "~" + rawMetadata;
-                        // piggyBacked += "~~" + piggy;
-                        // } else if (c_piggy[0].equals(destPath)) {
-                        // piggyBacked = NodeEvent.METADATA.name() + "~" + rawMetadata;
-                        // piggyBacked += "~~" + c_piggy[1];
-                        // }
-
-                        // if (piggyBacked != null) {
-                        // byte[] data = piggyBacked.getBytes();
-                        // logger.info("Sending piggyback:" + piggyBacked);
-                        // try {
-                        // _zooKeeper.setData(destPath, data, _zooKeeper.exists(destPath,
-                        // false).getVersion());
-                        // } catch (Exception e) {
-                        // logger.error("Error while piggyback of metadata & transfer to " + destPath);
-
-                        // StringWriter sw = new StringWriter();
-                        // PrintWriter pw = new PrintWriter(sw);
-                        // e.printStackTrace(pw);
-                        // logger.error(sw.toString());
-                        // }
-                        // } else {
-                        // sendMetadata(destPath);
-                        // }
-                        // }
                         sendMetadata();
 
                         // Add it back to the list of available servers
@@ -729,11 +607,7 @@ public class ECS implements IECSClient {
                 }
             } catch (Exception e) {
                 logger.error("Error while checking for removed nodes");
-
-                StringWriter sw = new StringWriter();
-                PrintWriter pw = new PrintWriter(sw);
-                e.printStackTrace(pw);
-                logger.error(sw.toString());
+                exceptionLogger(e);
 
                 return false;
             }
@@ -821,11 +695,7 @@ public class ECS implements IECSClient {
             _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
         } catch (Exception e) {
             logger.error("Error while sending metadata to " + path);
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
         }
     }
 
@@ -844,11 +714,7 @@ public class ECS implements IECSClient {
             }
         } catch (Exception e) {
             logger.error("Error while broadcasting metadata");
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
         }
     }
 
@@ -875,11 +741,7 @@ public class ECS implements IECSClient {
             }
         } catch (Exception e) {
             logger.error("Error while completing boot for: " + path);
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
         }
     }
 
@@ -890,11 +752,7 @@ public class ECS implements IECSClient {
             _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
         } catch (Exception e) {
             logger.error("Error while pending start server: " + serverName);
-
-            StringWriter sw = new StringWriter();
-            PrintWriter pw = new PrintWriter(sw);
-            e.printStackTrace(pw);
-            logger.error(sw.toString());
+            exceptionLogger(e);
         }
     }
 
@@ -925,88 +783,10 @@ public class ECS implements IECSClient {
         return String.join(",", nodeList);
     }
 
-    // Key was removed
-    private HashMap<String, String> replica_removed(String key) {
-        HashMap<String, String> res = new HashMap<String, String>();
-
-        Map.Entry<String, ECSNode> prev1 = active_servers.lowerEntry(key);
-        // Wrap around
-        if (prev1 == null) {
-            prev1 = active_servers.lastEntry();
-        }
-        Map.Entry<String, ECSNode> prev2 = active_servers.lowerEntry(prev1.getKey());
-        if (prev2 == null) {
-            prev2 = active_servers.lastEntry();
-        }
-        Map.Entry<String, ECSNode> after1 = active_servers.higherEntry(key);
-        if (after1 == null) {
-            after1 = active_servers.firstEntry();
-        }
-        Map.Entry<String, ECSNode> after2 = active_servers.higherEntry(after1.getKey());
-        if (after2 == null) {
-            after2 = active_servers.firstEntry();
-        }
-
-        // If the deleted node was a replica to other coordinators
-
-        // Case 1: The deleted node was a replica 1
-        // This node's 1st predecessor must now replicate to this node's 2nd
-        // successor
-        String value = after2.getValue().getNodeHost() + ":"
-                + after2.getValue().getNodePort() + ":" + after2.getValue().getNodeName();
-        String path = String.format("%s/%s", _rootZnode, prev1.getValue().getNodeName());
-        res.put(path, value);
-
-        // Case 2: The deleted node was a replica 2
-        // This node's 2nd predecessor must now replicate to this node's 1st
-        // successor
-        value = after1.getValue().getNodeHost() + ":"
-                + after1.getValue().getNodePort() + ":" + after1.getValue().getNodeName();
-        path = String.format("%s/%s", _rootZnode, prev2.getValue().getNodeName());
-        res.put(path, value);
-
-        return res;
-    }
-
-    // Key was added
-    private HashMap<String, String> replica_added(String key, ECSNode node) {
-        HashMap<String, String> res = new HashMap<String, String>();
-        String value = node.getNodeHost() + ":"
-                + node.getNodePort() + ":" + node.getNodeName();
-
-        Map.Entry<String, ECSNode> prev1 = active_servers.lowerEntry(key);
-        // Wrap around
-        if (prev1 == null) {
-            prev1 = active_servers.lastEntry();
-        }
-        String path = String.format("%s/%s", _rootZnode, prev1.getValue().getNodeName());
-        res.put(path, value);
-
-        Map.Entry<String, ECSNode> prev2 = active_servers.lowerEntry(prev1.getKey());
-        if (prev2 == null) {
-            prev2 = active_servers.lastEntry();
-        }
-        path = String.format("%s/%s", _rootZnode, prev2.getValue().getNodeName());
-        res.put(path, value);
-
-        path = String.format("%s/%s", _rootZnode, node.getNodeName());
-        if (res.containsKey(path)) {
-            res.remove(path);
-        }
-
-        return res;
-    }
-
-    private String[] coordinate_node(String key, ECSNode node) {
-        // The deleted node was a coordinator (hence after1 becomes the new
-        // coordinator)
-        Map.Entry<String, ECSNode> after1 = active_servers.higherEntry(key);
-        if (after1 == null) {
-            after1 = active_servers.firstEntry();
-        }
-        String value = NodeEvent.COORDINATE.name() + "~" + key + "," + node.getNodeName();
-        String path = String.format("%s/%s", _rootZnode, after1.getValue().getNodeName());
-
-        return new String[] { path, value };
+    private static void exceptionLogger(Exception e) {
+        StringWriter sw = new StringWriter();
+        PrintWriter pw = new PrintWriter(sw);
+        e.printStackTrace(pw);
+        logger.error(sw.toString());
     }
 }
