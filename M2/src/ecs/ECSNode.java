@@ -19,10 +19,11 @@ public class ECSNode implements IECSNode {
     private String host;
     private int port;
     private int zkPort = -1;
+    private String ECSIP;
     private String[] hashRange;
     private Status status = Status.ADDED;
 
-    public ECSNode(String name, String host, int port, int zkPort, String[] hashRange) {
+    public ECSNode(String name, String host, int port, int zkPort, String[] hashRange, String ECSIP) {
         try {
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
             new LogSetup("logs/ecsnode_" + name + "_" + fmt.format(new Date()) + ".log", Level.ALL, false);
@@ -35,13 +36,15 @@ public class ECSNode implements IECSNode {
         this.host = host;
         this.port = port;
         this.zkPort = zkPort;
+        this.ECSIP = ECSIP;
         this.hashRange = hashRange.clone();
     }
 
-    public ECSNode(String name, String host, int port, String[] hashRange) {
+    public ECSNode(String name, String host, int port, String[] hashRange, String ECSIP) {
         this.name = name;
         this.host = host;
         this.port = port;
+        this.ECSIP = ECSIP;
         this.hashRange = hashRange.clone();
     }
 
@@ -55,7 +58,9 @@ public class ECSNode implements IECSNode {
 
         Runtime run = Runtime.getRuntime();
         String[] envp = { "host=" + this.host, "name=" + this.name, "port=" + this.port,
-                "zkPort=" + this.zkPort };
+                "zkPort=" + this.zkPort, "ECS_host=" +
+                        this.ECSIP
+        };
         try {
             final Process proc = run.exec(script, envp);
             new Thread(new Runnable() {

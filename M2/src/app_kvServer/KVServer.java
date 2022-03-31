@@ -73,6 +73,7 @@ public class KVServer implements IKVServer {
 	public String name;
 	private String nameHash;
 	private int zkPort;
+	private String ECSIP;
 	private CacheStrategy strategy;
 	private ServerSocket serverSocket;
 	private Status status = Status.BOOT;
@@ -114,7 +115,7 @@ public class KVServer implements IKVServer {
 	 * 
 	 */
 	public KVServer(final int cacheSize, CacheStrategy strategy, String name, int port,
-			int zkPort) {
+			int zkPort, String ECSIP) {
 		logger.info("Creating server. Config: port=" + port + " Cache Size=" + cacheSize
 				+ " Caching strategy=" + strategy);
 
@@ -123,6 +124,7 @@ public class KVServer implements IKVServer {
 		this.strategy = strategy;
 		this.name = name;
 		this.zkPort = zkPort;
+		this.ECSIP = ECSIP;
 		this.storageDirectory = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, name);
 
 		if (strategy == CacheStrategy.LRU) {
@@ -538,20 +540,21 @@ public class KVServer implements IKVServer {
 	 */
 	public static void main(String[] args) {
 		try {
-			if (args.length != 3) {
+			if (args.length != 4) {
 				logger.error("Error! Invalid number of arguments!");
-				logger.error("Usage: Server <name> <port> <ZooKeeper Port>!");
+				logger.error("Usage: Server <name> <port> <ZooKeeper Port> <ECS IP>!");
 				System.exit(1);
 			} else {
 				String name = args[0];
 				int port = Integer.parseInt(args[1]);
 				int zkPort = Integer.parseInt(args[2]);
+				String ECSIP = args[3];
 				SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
 				new LogSetup("logs/" + name + "_" + fmt.format(new Date()) + ".log", Level.ALL, true);
 				// No need to use the run method here since the contructor is supposed to
 				// start the server on its own
 				// TODO: Allow passing additional arguments from the command line:
-				new KVServer(START_CACHE_SIZE, START_CACHE_STRATEGY, name, port, zkPort);
+				new KVServer(START_CACHE_SIZE, START_CACHE_STRATEGY, name, port, zkPort, ECSIP);
 			}
 		} catch (IOException e) {
 			System.out.println("Error! Unable to initialize logger!");
@@ -598,7 +601,7 @@ public class KVServer implements IKVServer {
 		logger.info("Creating & initializing ZooKeeper node ...");
 		try {
 			ZooKeeperWatcher zkWatcher = new ZooKeeperWatcher(this);
-			_zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, zkWatcher);
+			_zooKeeper = new ZooKeeper(ECSIP + ":" + zkPort, 2000, zkWatcher);
 			byte[] data = NodeEvent.BOOT.name().getBytes();
 			String path = String.format("%s/%s", _rootZnode, name);
 			logger.info("Creating node:" + path);
@@ -653,7 +656,7 @@ public class KVServer implements IKVServer {
 			try {
 				String[] hashRange = { serverInfo[3], serverInfo[4] };
 				ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
-						Integer.parseInt(serverInfo[2]), zkPort, hashRange);
+						Integer.parseInt(serverInfo[2]), zkPort, hashRange, "RANDOM");
 				logger.info("Server info:" + node.getMeta());
 
 				// Remember this server's hash so we don't have to keep recalculating it

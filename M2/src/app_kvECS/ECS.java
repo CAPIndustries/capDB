@@ -3,7 +3,13 @@ package app_kvECS;
 import java.net.BindException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 
+import java.net.*;
+
+import java.util.Enumeration;
 import java.util.Collections;
 import java.util.Arrays;
 import java.util.List;
@@ -63,6 +69,7 @@ public class ECS implements IECSClient {
     private HashMap<String, String> movedServers = new HashMap<String, String>();
     private int zkPort;
     private int port;
+    private String ECSIP;
     private String rawMetadata = "";
     private ServerSocket serverSocket;
 
@@ -111,6 +118,12 @@ public class ECS implements IECSClient {
         try {
             this.port = port;
             this.zkPort = zkPort;
+            this.ECSIP = getIP();
+            if (this.ECSIP == null) {
+                logger.fatal("Unable to obtain IP. Cannot continue");
+                System.exit(1);
+            }
+
             File myObj = new File(config);
             Scanner myReader = new Scanner(myObj);
             while (myReader.hasNextLine()) {
@@ -163,6 +176,35 @@ public class ECS implements IECSClient {
                 exceptionLogger(e);
             }
         }
+    }
+
+    private String getIP() {
+        String ip;
+        try {
+            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
+            while (interfaces.hasMoreElements()) {
+                NetworkInterface iface = interfaces.nextElement();
+                // filters out 127.0.0.1 and inactive interfaces
+                if (iface.isLoopback() || !iface.isUp())
+                    continue;
+
+                Enumeration<InetAddress> addresses = iface.getInetAddresses();
+                while (addresses.hasMoreElements()) {
+                    InetAddress addr = addresses.nextElement();
+
+                    // *EDIT*
+                    if (addr instanceof Inet6Address)
+                        continue;
+
+                    return addr.getHostAddress();
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error while obtaining server IP address");
+            exceptionLogger(e);
+        }
+
+        return null;
     }
 
     private void initServer() {
@@ -336,7 +378,7 @@ public class ECS implements IECSClient {
             // of any other potential servers (cf. sendMetadata)
             String[] hashRange = { null, hash };
             ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
-                    Integer.parseInt(serverInfo[2]), zkPort, hashRange);
+                    Integer.parseInt(serverInfo[2]), zkPort, hashRange, ECSIP);
 
             if (!node.initServer()) {
                 logger.error("Could not SSH into server!");

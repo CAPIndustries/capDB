@@ -139,7 +139,7 @@ public class KVStore implements KVCommInterface {
 			try {
 				String[] hashRange = { serverInfo[3], serverInfo[4] };
 				ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
-						Integer.parseInt(serverInfo[2]), hashRange);
+						Integer.parseInt(serverInfo[2]), hashRange, "RANDOM");
 				logger.info("Server info:" + node.getMeta());
 
 				logger.info("Added:" + serverInfo[1] + ":" + serverInfo[2]);
