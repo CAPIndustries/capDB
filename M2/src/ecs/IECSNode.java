@@ -6,7 +6,7 @@ public interface IECSNode {
 
     public enum NodeEvent {
         BOOT, METADATA, METADATA_COMPLETE, START, COPY, COPY_COMPLETE, MOVE,
-        STOP, REPLICATE
+        STOP, REPLICATE, COORDINATE, SHUTDOWN
     };
 
     /**

@@ -10,6 +10,12 @@ import java.io.FileWriter;
 import java.io.StringWriter;
 import java.io.PrintWriter;
 
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.SimpleFileVisitor;
+import java.nio.file.FileVisitResult;
+import java.nio.file.attribute.BasicFileAttributes;
+
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 
@@ -20,6 +26,9 @@ import java.util.TreeMap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import java.text.SimpleDateFormat;
 
@@ -53,6 +62,8 @@ public class KVServer implements IKVServer {
 	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.LRU;
 	private static final int START_CACHE_SIZE = 16;
 	private static final int MAX_READS = 100;
+	private static final int RECONCILIATION_INTERVAL = 30 * 1000;
+
 	public volatile boolean test = false;
 	public volatile boolean wait = false;
 
@@ -69,6 +80,9 @@ public class KVServer implements IKVServer {
 	private TreeMap<String, ECSNode> metadata = new TreeMap<String, ECSNode>();
 	private String rawMetadata;
 	private ArrayList<String> movedItems = new ArrayList<String>();
+
+	private String replica1 = null;
+	private String replica2 = null;
 
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode = "/servers";
@@ -184,16 +198,38 @@ public class KVServer implements IKVServer {
 
 	@Override
 	public void clearStorage() {
-		logger.info("Clearing storage");
+		logger.info("Clearing storage ...");
 		clearCache();
-		File[] allContents = new File(storageDirectory).listFiles();
-		logger.info("Deleting " + allContents.length + " records");
-		if (allContents != null) {
-			for (File file : allContents) {
-				file.delete();
-			}
+
+		deleteDirectory(storageDirectory);
+
+		logger.info("Storage cleared.");
+	}
+
+	private void deleteDirectory(String deletedDirectory) {
+		Path directory = Paths.get(deletedDirectory);
+		try {
+			Files.walkFileTree(directory, new SimpleFileVisitor<Path>() {
+				@Override
+				public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+					Files.delete(file);
+					return FileVisitResult.CONTINUE;
+				}
+
+				@Override
+				public FileVisitResult postVisitDirectory(Path dir, IOException exc) throws IOException {
+					Files.delete(dir);
+					return FileVisitResult.CONTINUE;
+				}
+			});
+		} catch (Exception e) {
+			logger.error("Error while deleting directory: " + deletedDirectory);
+
+			StringWriter sw = new StringWriter();
+			PrintWriter pw = new PrintWriter(sw);
+			e.printStackTrace(pw);
+			logger.error(sw.toString());
 		}
-		logger.info("Storage cleared");
 	}
 
 	@Override
@@ -445,6 +481,7 @@ public class KVServer implements IKVServer {
 				return;
 			}
 		}
+		// scheduleReconciliation();
 		if (serverSocket != null) {
 			logger.info("Server running ...");
 			while (getStatus() != Status.STOPPED) {
@@ -608,6 +645,7 @@ public class KVServer implements IKVServer {
 		rawMetadata = data;
 		logger.info("Raw metadata:" + rawMetadata);
 		String[] serverData = data.split(",");
+		metadata.clear();
 		for (String server : serverData) {
 			String[] serverInfo = server.split(":");
 
@@ -633,7 +671,7 @@ public class KVServer implements IKVServer {
 
 		if (getStatus() == Status.STOPPED) {
 			// Send an ACK of the metadata receival
-			setNodeData(NodeEvent.METADATA_COMPLETE.name());
+			// setNodeData(NodeEvent.METADATA_COMPLETE.name());
 		}
 	}
 
@@ -670,12 +708,12 @@ public class KVServer implements IKVServer {
 	public void shutDown() {
 		try {
 			logger.info("Shutting down server ...");
+
 			logger.info("Shutting down ZooKeeper ...");
 			_zooKeeper.close();
+			logger.info("ZooKeeper shutdown.");
 
-			logger.info("Shutdown ZooKeeper. Deleting storage data ...");
-			File dir = new File(this.storageDirectory);
-			dir.delete();
+			clearStorage();
 
 			close();
 		} catch (Exception e) {
@@ -686,7 +724,85 @@ public class KVServer implements IKVServer {
 
 	@Override
 	public void update(String data) {
+		logger.info("Updating metadata ...");
 		initKVServer(data);
+		updateReplicas();
+		expireOldData();
+		// TODO: Must temp stop the scheduledReconcilation
+	}
+
+	private void updateReplicas() {
+		logger.info("Updating any necessary replicas ...");
+		ArrayList<String> replica_updates = new ArrayList<String>();
+
+		Map.Entry<String, ECSNode> after1 = metadata.higherEntry(nameHash);
+		if (after1 == null) {
+			after1 = metadata.firstEntry();
+		}
+		if (after1.getKey() != nameHash) {
+			if (replica1 == null || !replica1.equals(after1.getValue().getNodeName())) {
+				replica1 = after1.getValue().getNodeName();
+				replica_updates.add(after1.getValue().getNodeHost() + ":" + after1.getValue().getNodePort() + ":"
+						+ after1.getValue().getNodeName());
+			}
+
+			Map.Entry<String, ECSNode> after2 = metadata.higherEntry(after1.getKey());
+			if (after2 == null) {
+				after2 = metadata.firstEntry();
+			}
+			if (after2.getKey() != nameHash) {
+				if (replica2 == null || !replica2.equals(after2.getValue().getNodeName())) {
+					replica2 = after2.getValue().getNodeName();
+					replica_updates.add(after2.getValue().getNodeHost() + ":" + after2.getValue().getNodePort() + ":"
+							+ after2.getValue().getNodeName());
+				}
+			} else {
+				replica2 = null;
+			}
+		} else {
+			replica1 = null;
+			replica2 = null;
+		}
+
+		if (replica_updates.size() > 0) {
+			String replicas = String.join(",", replica_updates);
+			logger.info("Due to metadata updates, must replicate data to: " + replicas);
+			replicate(replicas, false);
+		}
+	}
+
+	private void expireOldData() {
+		logger.info("Expiring old data (no longer responsibile for)");
+
+		File dir = new File(storageDirectory);
+		if (!dir.exists()) {
+			logger.info("Storage directory does not exist. Creating new directory ...");
+			dir.mkdir();
+			return;
+		}
+		File[] directoryListing = dir.listFiles();
+		for (File item : directoryListing) {
+			if (item.isDirectory()) {
+				String coordinator = item.getName().split("_")[1];
+				// Check if coordinator is still the coordinator (must be within 2 levels)
+				Map.Entry<String, ECSNode> prev1 = metadata.lowerEntry(nameHash);
+				// Wrap around
+				if (prev1 == null) {
+					prev1 = metadata.lastEntry();
+				}
+				Map.Entry<String, ECSNode> prev2 = metadata.lowerEntry(prev1.getKey());
+				if (prev2 == null) {
+					prev2 = metadata.lastEntry();
+				}
+				if (coordinator.equals(prev1.getValue().getNodeName())
+						|| coordinator.equals(prev2.getValue().getNodeName())) {
+					logger.info("Is a replica for " + coordinator);
+					continue;
+				}
+				logger.info("No longer a replica of " + coordinator);
+				deleteDirectory(storageDirectory + item.getName());
+			}
+		}
 	}
 
 	public synchronized void setNodeData(String data) {
@@ -792,6 +908,48 @@ public class KVServer implements IKVServer {
 		setNodeData(NodeEvent.COPY_COMPLETE.name());
 	}
 
+	public void reconcileData(boolean pendingShutdown) {
+		logger.info("Reconciling data ...");
+		ArrayList<String> replicas = new ArrayList<String>();
+		Map.Entry<String, ECSNode> after1 = metadata.higherEntry(nameHash);
+		if (after1 == null) {
+			after1 = metadata.firstEntry();
+		}
+		if (after1.getKey() != nameHash) {
+			replicas.add(after1.getValue().getNodeHost() + ":" + after1.getValue().getNodePort() + ":"
+					+ after1.getValue().getNodeName());
+
+			Map.Entry<String, ECSNode> after2 = metadata.higherEntry(after1.getKey());
+			if (after2 == null) {
+				after2 = metadata.firstEntry();
+			}
+
+			if (after2.getKey() != nameHash) {
+				replicas.add(after2.getValue().getNodeHost() + ":" + after2.getValue().getNodePort() + ":"
+						+ after2.getValue().getNodeName());
+			}
+		}
+
+		// Move the data to the two replica servers
+		String res = String.join(",", replicas);
+		logger.info("Reconciled data:" + res);
+		replicate(res, pendingShutdown);
+	}
+
+	private void scheduleReconciliation() {
+		logger.info(
+				"Starting the scheduled reconciliation service (running every " + RECONCILIATION_INTERVAL / 1000
+						+ " seconds) ...");
+		ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+
+		scheduler.scheduleAtFixedRate(new Runnable() {
+			@Override
+			public void run() {
+				reconcileData(false);
+			}
+		}, 0, RECONCILIATION_INTERVAL, TimeUnit.MILLISECONDS);
+	}
+
 	public void completeMove() {
 		logger.info("Completing the move by deleting the items ...");
 
@@ -822,12 +980,110 @@ public class KVServer implements IKVServer {
 	public void loadMetadata(String data) {
 		if (rawMetadata == null || rawMetadata.isEmpty()) {
 			initKVServer(data);
+			updateReplicas();
 		} else {
 			update(data);
 		}
 	}
 
-	public void replicate(final String address, final int port, final String serverName) {
+	public void replicate(String destinations, final boolean pendingShutdown) {
+		// TODO: When replicating, also be sure to check if any deleted items in the
+		// coordinator are deleted in the replica
+		String[] d = destinations.split(",");
+		Thread[] threads = new Thread[d.length];
+		for (int i = 0; i < d.length; ++i) {
+			String destination = d[i];
+
+			String[] serverInfo = destination.split(":");
+			final String address = serverInfo[0];
+			final int port = Integer.parseInt(serverInfo[1]);
+			final String serverName = serverInfo[2];
+
+			final File dir = new File(this.storageDirectory);
+			final String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY,
+					serverName);
+
+			threads[i] = new Thread(new Runnable() {
+				public void run() {
+					// TODO: Do SCP since servers could be in a different PC
+					logger.info("Replicating this server's data to " + address + ":" + port + " in new thread");
+					// Create a replica directory
+					String updatedDest = dest;
+					if (!pendingShutdown) {
+						updatedDest = String.format("%sreplica_%s/", dest, name);
+					}
+					File destDir = new File(updatedDest);
+					if (!destDir.exists()) {
+						logger.info("Replica destination directory does not exist. Creating new directory ...");
+						destDir.mkdirs();
+					}
+
+					File[] directoryListing = dir.listFiles();
+					for (File item : directoryListing) {
+						try {
+							if (item.isDirectory()) {
+								continue;
+							}
+							logger.info("Replicating:" + item.getName());
+							logger.info("From: " + item.toPath());
+							logger.info("To: " + new File(updatedDest + item.getName()).toPath());
+
+							Files.copy(item.toPath(),
+									new File(updatedDest + item.getName()).toPath(),
+									StandardCopyOption.REPLACE_EXISTING);
+						} catch (Exception e) {
+							logger.error("Error while trying to replicate data");
+
+							StringWriter sw = new StringWriter();
+							PrintWriter pw = new PrintWriter(sw);
+							e.printStackTrace(pw);
+							logger.error(sw.toString());
+						}
+					}
+					logger.info("Replication complete in " + serverName + "!");
+				}
+			});
+			threads[i].start();
+		}
+
+		if (wait) {
+			logger.info("Waiting for replications to finish ...");
+			try {
+				for (int i = 0; i < d.length; ++i) {
+					threads[i].join();
+				}
+			} catch (Exception e) {
+				logger.error("Error while waiting for replication threads to complete!");
+
+				StringWriter sw = new StringWriter();
+				PrintWriter pw = new PrintWriter(sw);
+				e.printStackTrace(pw);
+				logger.error(sw.toString());
+			}
+		}
+	}
+
+	public void coordinate(String prevKey, String prevName) {
+		// This node was replica 1 to prevCoordinator. Now it's the coordinator
+		// Therefore, it needs to replicate its data 2 levels down in the ring
+		logger.info("Taking over as coordinator from " + prevName);
+		Map.Entry<String, ECSNode> after1 = metadata.higherEntry(prevKey);
+		if (after1 == null) {
+			after1 = metadata.firstEntry();
+		}
+		Map.Entry<String, ECSNode> after2 = metadata.higherEntry(after1.getKey());
+		if (after2 == null) {
+			after2 = metadata.firstEntry();
+		}
+
+		if (after1.getKey() == after2.getKey() || after2.getKey() == nameHash) {
+			logger.info("No more servers to replicate to.");
+			return;
+		}
+
+		final String address = after2.getValue().getNodeHost();
+		final int port = after2.getValue().getNodePort();
+		final String serverName = after2.getValue().getNodeName();
 		logger.info("Replicating this server's data to " + address + ":" + port);
 
 		final File dir = new File(this.storageDirectory);
@@ -836,9 +1092,9 @@ public class KVServer implements IKVServer {
 		Thread replicateThread = new Thread(new Runnable() {
 			public void run() {
 				// TODO: Do SCP since servers could be in a different PC
-				logger.info("Replicating in new thread");
+				logger.info("Replicating for new coordinator in new thread");
 				// Create a replica directory
-				String dest = String.format("%s/%s/replica", ROOT_STORAGE_DIRECTORY, serverName);
+				String dest = String.format("%s/%s/replica_%s/", ROOT_STORAGE_DIRECTORY, serverName, name);
 				File destDir = new File(dest);
 				if (!destDir.exists()) {
 					logger.info("Replica destination directory does not exist. Creating new directory ...");
@@ -848,6 +1104,9 @@ public class KVServer implements IKVServer {
 				File[] directoryListing = dir.listFiles();
 				for (File item : directoryListing) {
 					try {
+						if (item.isDirectory()) {
+							continue;
+						}
 						logger.info("Replicating:" + item.getName());
 						logger.info("From: " + item.toPath());
 						logger.info("To: " + new File(dest + item.getName()).toPath());
@@ -864,6 +1123,7 @@ public class KVServer implements IKVServer {
 						logger.error(sw.toString());
 					}
 				}
+				logger.info("Replication for new coordinator complete!");
 			}
 		});
 		replicateThread.start();

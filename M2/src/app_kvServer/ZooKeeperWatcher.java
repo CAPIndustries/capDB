@@ -85,16 +85,23 @@ public class ZooKeeperWatcher implements Watcher {
                                 caller.stop();
                                 break;
                             case REPLICATE:
-                                String[] destination = data[1].split(":");
-                                caller.replicate(destination[0], Integer.parseInt(destination[1]), destination[2]);
+                                caller.replicate(data[1], false);
+                                break;
+                            case COORDINATE:
+                                String[] a = data[1].split(",");
+                                caller.coordinate(a[0], a[1]);
                                 break;
                             case COPY:
-                                String[] moveData = data[1].split(",");
-                                String[] range = { moveData[0], moveData[1] };
-                                caller.moveData(range, moveData[2]);
+                                String[] b = data[1].split(",");
+                                String[] range = { b[0], b[1] };
+                                caller.moveData(range, b[2]);
                                 break;
                             case MOVE:
                                 caller.completeMove();
+                                break;
+                            case SHUTDOWN:
+                                caller.reconcileData(true);
+                                caller.shutDown();
                                 break;
                             // Ignored events:
                             case BOOT:

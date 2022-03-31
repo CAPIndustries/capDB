@@ -30,86 +30,95 @@ public class ZooKeeperWatcher implements Watcher {
     }
 
     @Override
-    public void process(WatchedEvent event) {
+    public void process(final WatchedEvent event) {
         if (event == null) {
             return;
         }
 
-        // Get connection status
-        KeeperState keeperState = event.getState();
-        // Event type
-        EventType eventType = event.getType();
-        // Affected path
-        String path = event.getPath();
+        // Run in separate thread to avoid blocking the watcher...
+        Thread eventThread = new Thread(new Runnable() {
+            public void run() {
+                Thread.currentThread().setName("ZK_Watcher" + Thread.currentThread().getName());
+                // Get connection status
+                KeeperState keeperState = event.getState();
+                // Event type
+                EventType eventType = event.getType();
+                // Affected path
+                String path = event.getPath();
 
-        logger.info("Event from:\t" + path);
-        logger.info("Connection status:\t" + keeperState.toString());
-        logger.info("Event type:\t" + eventType.toString());
+                logger.info("Event from:\t" + path);
+                logger.info("Connection status:\t" + keeperState.toString());
+                logger.info("Event type:\t" + eventType.toString());
 
-        switch (eventType) {
-            case None:
-                logger.info("Successfully connected to ZK server!");
-                break;
-            case NodeDataChanged:
-                try {
-                    logger.info("Node data update");
-                    // Resubscribe below:
-                    logger.info("Resubscribing back to " + path);
-                    byte[] dataBytes = caller._zooKeeper.getData(path,
-                            true, null);
-                    String recv = new String(dataBytes,
-                            "UTF-8");
-                    logger.info("ZooKeeper Notification:" + recv);
-                    String[] reqs = recv.split("~~");
+                switch (eventType) {
+                    case None:
+                        logger.info("Successfully connected to ZK server!");
+                        break;
+                    case NodeDataChanged:
+                        try {
+                            logger.info("Node data update");
+                            // Resubscribe below:
+                            logger.info("Resubscribing back to " + path);
+                            byte[] dataBytes = caller._zooKeeper.getData(path,
+                                    true, null);
+                            String recv = new String(dataBytes,
+                                    "UTF-8");
+                            logger.info("ZooKeeper Notification:" + recv);
+                            String[] reqs = recv.split("~~");
 
-                    // There may be piggybacked requests
-                    for (String req : reqs) {
-                        String[] data = req.split("~");
-                        switch (NodeEvent.valueOf(data[0])) {
-                            case METADATA_COMPLETE:
-                                logger.info("Metadata ACK!");
-                                break;
-                            case COPY_COMPLETE:
-                                caller.completeCopy(path);
-                                break;
-                            // Skip the following events:
-                            case START:
-                            case BOOT:
-                            case METADATA:
-                            case STOP:
-                            case COPY:
-                            case MOVE:
-                            case REPLICATE:
-                                break;
-                            default:
-                                logger.error("Unrecognized node event:" + data[0]);
+                            // There may be piggybacked requests
+                            for (String req : reqs) {
+                                String[] data = req.split("~");
+                                switch (NodeEvent.valueOf(data[0])) {
+                                    case METADATA_COMPLETE:
+                                        logger.info("Metadata ACK!");
+                                        break;
+                                    case COPY_COMPLETE:
+                                        caller.completeCopy(path);
+                                        break;
+                                    // Skip the following events:
+                                    case START:
+                                    case BOOT:
+                                    case METADATA:
+                                    case STOP:
+                                    case COPY:
+                                    case MOVE:
+                                    case REPLICATE:
+                                    case COORDINATE:
+                                    case SHUTDOWN:
+                                        break;
+                                    default:
+                                        logger.error("Unrecognized node event:" + data[0]);
+                                }
+                            }
+                        } catch (Exception e) {
+                            logger.error("Error while getting data");
+
+                            StringWriter sw = new StringWriter();
+                            PrintWriter pw = new PrintWriter(sw);
+                            e.printStackTrace(pw);
+                            logger.error(sw.toString());
                         }
-                    }
-                } catch (Exception e) {
-                    logger.error("Error while getting data");
+                        break;
+                    case NodeChildrenChanged:
+                        // Is it a new child? Or did a node get deleted?
+                        logger.info("Node created/deleted");
+                        caller.nodeRemovedCreated();
 
-                    StringWriter sw = new StringWriter();
-                    PrintWriter pw = new PrintWriter(sw);
-                    e.printStackTrace(pw);
-                    logger.error(sw.toString());
+                        // Resubscribe back:
+                        try {
+                            logger.info("Resubscribing back to children");
+                            caller._zooKeeper.getChildren(caller._rootZnode,
+                                    true);
+                        } catch (Exception e) {
+                            logger.error("Error while resubscribing back to obtain children");
+                        }
+                        break;
+                    default:
+                        break;
                 }
-                break;
-            case NodeChildrenChanged:
-                // Is it a new child? Or did a node get deleted?
-                logger.info("Node created/deleted");
-                caller.nodeRemovedCreated();
-
-                // Resubscribe back:
-                try {
-                    logger.info("Resubscribing back to children");
-                    caller._zooKeeper.getChildren(caller._rootZnode,
-                            true);
-                } catch (Exception e) {
-                    logger.error("Error while resubscribing back to obtain children");
-                }
-                break;
-            default:
-                break;
-        }
+            }
+        });
+        eventThread.start();
     }
 }
