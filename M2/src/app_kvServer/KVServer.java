@@ -1040,7 +1040,7 @@ public class KVServer implements IKVServer {
 			threads[i].start();
 		}
 
-		if (wait) {
+		if (pendingShutdown) {
 			logger.info("Waiting for replications to finish ...");
 			try {
 				for (int i = 0; i < d.length; ++i) {
