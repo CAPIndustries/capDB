@@ -138,7 +138,7 @@ public class AllTests {
 		// clientSuite.addTestSuite(ConnectionTest.class);
 
 		PerformanceBasicTest.port = 50019;
-		PerformanceBasicTest.server = kvserver;
+		PerformanceBasicTest.server = ECSServer;
 		clientSuite.addTestSuite(PerformanceBasicTest.class);
 
 		// clientSuite.addTestSuite(ECSTest.class)

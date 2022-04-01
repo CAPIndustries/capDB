@@ -13,6 +13,7 @@ import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
 import app_kvServer.KVServer;
+import app_kvECS.ECS;
 import app_kvServer.ConcurrentNode;
 
 import shared.messages.IKVMessage;
@@ -25,7 +26,7 @@ public class PerformanceBasicTest extends TestCase {
 
 	private KVStore kvClient;
 	private static Logger logger = Logger.getRootLogger();
-	public static KVServer server;
+	public static ECS server;
 	public static int port;
 
 	// public void setUp() {
@@ -138,15 +139,19 @@ public class PerformanceBasicTest extends TestCase {
 	public void testThroughput() {
 
 		Runnable workload = new Runnable() {
+
 			@Override
 			public void run() {
 				try {
-					KVStore kv = new KVStore("localhost", 50019);
+					int[] test = new int[]{50019, 50013, 50012, 50011, 50010};
+					int index = (int) Thread.currentThread().getId() % 5;
+					logger.info("Thread " + "" + (int) Thread.currentThread().getId() + " - " + index);
+					KVStore kv = new KVStore("localhost", test[index]);
 					Logger logger = Logger.getRootLogger();
 					kv.connect();
 
 					String key = "key";
-					for (int i = 0; i < 500; ++i) {
+					for (int i = 0; i < 100; ++i) {
 						if (i % 2 == 0) {
 							kv.put(key, "" + (int) Thread.currentThread().getId());
 						} else {
@@ -178,6 +183,9 @@ public class PerformanceBasicTest extends TestCase {
 				logger.error(e);
 			}
 		}
+		server.shutdown();
+		logger.info("DONE PERF TEST !!!!!");
+
 
 	}
 
