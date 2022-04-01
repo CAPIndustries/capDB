@@ -79,6 +79,11 @@ public class ECS implements IECSClient {
         return active_servers.size();
     }
 
+     public int testGetAvailServerCount() {
+        logger.info("getServerCount: " + available_servers.size());
+        return available_servers.size();
+    }
+
     /**
      * Main entry point for the ECS application.
      * 
@@ -630,7 +635,14 @@ public class ECS implements IECSClient {
                             logger.info("Adding another node due to server crash ...");
                             addNode(DEFAULT_CACHE_STRATEGY.name(), DEFAULT_CACHE_SIZE);
                             // Krishna, verify this if you want the
-                            start();
+                            try {
+                                logger.info("sleeping");
+                                Thread.currentThread().sleep(1000);
+                                start();
+                            } catch (Exception e) {
+
+                                logger.info("error sleep: " + e.getMessage());
+                            }
                         }
                     }
                 }

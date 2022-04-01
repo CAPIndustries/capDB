@@ -1,155 +1,146 @@
-// package testing;
+package testing;
 
-// import java.io.File;
-// import java.util.Collection;
+import java.io.File;
+import java.io.FileNotFoundException;
+import java.util.Collection;
 
-// import junit.framework.TestCase;
+import junit.framework.TestCase;
 
-// import org.apache.log4j.Logger;
+import org.apache.log4j.Logger;
 
-// import app_kvECS.ECSClient;
-// import app_kvECS.IECSClient;
+import app_kvECS.ECSClient;
+import app_kvECS.ECS;
+import app_kvECS.IECSClient;
 
-// import ecs.IECSNode;
-// import ecs.ECSNode;
+import ecs.IECSNode;
+import ecs.ECSNode;
 
-// import client.KVStore;
+import client.KVStore;
 
-// import app_kvServer.KVServer;
+import app_kvServer.KVServer;
 
-// import shared.messages.IKVMessage;
-// import shared.messages.IKVMessage.StatusType;
-// import java.io.IOException;
+import shared.messages.IKVMessage;
+import shared.messages.IKVMessage.StatusType;
+import java.io.IOException;
 
-// public class ECSTest extends TestCase {
+public class ECSTest extends TestCase {
 
-//     private final String STORAGE_DIRECTORY = "storage/";
+    private final String STORAGE_DIRECTORY = "storage/";
 
-//     private KVStore kvClient;
-//     private static Logger logger = Logger.getRootLogger();
-//     public static KVServer server;
-//     public static int port;
+    private KVStore kvClient;
+    private static Logger logger = Logger.getRootLogger();
+    public static KVServer server;
+    public static int port;
 
-//     private static ECS ecs = null;
-//     private Exception ex = null;
+    private static ECS ecs = null;
+    private Exception ex = null;
 
-//     public void setUp() {
-//         // kvClient = new KVStore("localhost", 50000);
-//         // try {
-//         // server.clearStorage();
-//         // kvClient.connect();
-//         // } catch (Exception e) {
-//         // logger.error(e);
-//         // }
-//     }
+    public void setUp() {
+        ex = null;
+		if(ecs != null && ecs.testGetServerCount() != 0){
+			try {
+				logger.info("sleeping");
+                ecs.removeNode();
+				Thread.currentThread().sleep(2000);
+			} catch (Exception e) {
 
-//     public void tearDown() {
-//         // kvClient.disconnect();
-//         // server.clearStorage();
-//     }
+				logger.info("error sleep: " + e.getMessage());
+			}
+		}
+    }
 
-//     public void testNoConfig() throws IOException {
-//         logger.info("Starting ECS test");
-//         try {
-//             ecs = new ECSClient(2181, "ksajhsja");
-//             logger.info("Done ECS test");
-//         } catch (Exception e) {
-//             ex = e;
-//         }
-//         assertTrue(ecs.available_servers.size() == 0);
-//     }
+    public void tearDown() {
+        // kvClient.disconnect();
+        // server.clearStorage();
+    }
 
-//     public void testNormalConfig() throws IOException {
-//         logger.info("Starting ECS test");
-//         try {
-//             ecs = new ECSClient(2181, "/homes/s/solank23/ece419/capDB/M2/ecs.config");
-//             logger.info("Done ECS test");
-//         } catch (Exception e) {
-//             ex = e;
-//         }
-//         assertTrue(ecs.available_servers.size() == 8);
-//     }
+    public void testNoConfig() throws IOException {
+        logger.info("Starting ECS test");
+        try {
+            ecs = new ECS(8000,2181, "");
+            logger.info("Done ECS test");
+        } catch (Exception e) {
+            ex = e;
+        }
+        assertTrue(ecs.testGetAvailServerCount() == 0);
+    }
 
-//     // Won't add a node if no servers are provided in config
-//     public void testAddNodeWithNoServers() throws IOException {
-//         IECSNode res = null;
+    public void testNormalConfig() throws IOException {
+        logger.info("Starting ECS test");
+        try {
+            ecs = new ECS(8000,2181, "/homes/s/solank23/ece419/capDB/M2/ecs.config");
+            logger.info("Done ECS test");
+        } catch (Exception e) {
+            ex = e;
+        }
+        assertTrue(ecs instanceof ECS);
+    }
 
-//         try {
-//             ecs = new ECSClient(2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/bad.config");
-//             res = ecs.addNode("FIFO", 16);
-//         } catch (Exception e) {
-//             ex = e;
-//         }
-//         assertNull(res);
-//     }
+    // Won't add nodes if no servers are provided in config
+    public void testAddNodesWithNoServers() throws IOException {
+        Collection<IECSNode> res = null;
 
-//     // Won't add nodes if no servers are provided in config
-//     public void testAddNodesWithNoServers() throws IOException {
-//         Collection<IECSNode> res = null;
+        try {
+            ecs = new ECS(8000,2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/bad.config");
+            res = ecs.addNodes(10, "FIFO", 16);
+        } catch (Exception e) {
+            ex = e;
+        }
+        for (IECSNode node : res) {
+            assertNull(node);
+        }
+    }
 
-//         try {
-//             ecs = new ECSClient(2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/bad.config");
-//             res = ecs.addNodes(10, "FIFO", 16);
-//         } catch (Exception e) {
-//             ex = e;
-//         }
-//         for (IECSNode node : res) {
-//             assertNull(node);
-//         }
-//     }
+    // Will now add node
+    public void testAddNodeWithCorrectServer() throws IOException {
+        IECSNode res = null;
 
-//     // Will now add node
-//     public void testAddNodeWithCorrectServer() throws IOException {
-//         IECSNode res = null;
-//         long startTime = System.nanoTime();
-//         try {
-//             ecs = new ECSClient(2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config");
-//             res = ecs.addNode("FIFO", 16);
-//         } catch (Exception e) {
-//             ex = e;
-//         }
-//         long endTime = System.nanoTime() - startTime;
-//         logger.info(String.format("Time Required: %d", endTime));
-//         assertNotNull(res);
-//     }
+        try {
+            ecs = new ECS(8000,2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config");
+            res = ecs.addNode("FIFO", 16);
+        } catch (Exception e) {
+            ex = e;
+        }
+        assertNotNull(res);
+        assertTrue(res instanceof IECSNode);
+    }
 
-//     // Will now add node
-//     public void testAddNodeWithCorrectServer() throws IOException {
-//     IECSNode res = null;
+    public void testStartNode() throws IOException {
+        IECSNode res = null;
 
-//     try {
-//     ecs = new ECSClient(2181,
-//     "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config");
-//     res = ecs.addNode("FIFO", 16);
-//     } catch (Exception e) {
-//     ex = e;
-//     }
-//     assertNotNull(res);
-//     }
+        try {
+            ecs = new ECS(8000,2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config");
+            res = ecs.addNode("FIFO", 16);
+        } catch (Exception e) {
+            ex = e;
+        }
+        assertNotNull(res);
+    }
 
-//     // Will now add node
-//     public void testAddNodeWithCorrectServer() throws IOException {
-//     IECSNode res = null;
+    public void testDeleteNode() throws IOException {
+        IECSNode res = null;
+        String[] path = null;
 
-//     try {
-//     ecs = new ECSClient(2181,
-//     "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config");
-//     res = ecs.addNode("FIFO", 16);
-//     } catch (Exception e) {
-//     ex = e;
-//     }
-//     assertNotNull(res);
-//     }
+        logger.info("DELETE NODE test");
+        try {
+            ecs = new ECS(8000,2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config");
+            ecs.addNodes(2,"FIFO", 16);
+			Thread.currentThread().sleep(2000);
+			ecs.start();
+            KVStore kvClient = new KVStore("localhost", 50019);
+            kvClient.connect();
+            kvClient.put("haha", "10");
+            IKVMessage val = kvClient.get("haha");
+            logger.debug(val.getValue());
+            ecs.removeNode("xman2");
+			// Thread.currentThread().sleep(2000);
 
-//     public void testStartNode() throws IOException {
-//         IECSNode res = null;
+            
+            // File f = new File("/homes/s/solank23/ece419/capDB/M2/storage/");
 
-//         try {
-//             ecs = new ECSClient(2181, "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config");
-//             res = ecs.addNode("FIFO", 16);
-//         } catch (Exception e) {
-//             ex = e;
-//         }
-//         assertNotNull(res);
-//     }
-// }
+        } catch (Exception e) {
+            ex = e;
+        }
+        assertTrue(ecs.testGetAvailServerCount() == 1);
+    }
+}

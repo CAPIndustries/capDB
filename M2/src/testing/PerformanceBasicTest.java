@@ -150,13 +150,14 @@ public class PerformanceBasicTest extends TestCase {
 					Logger logger = Logger.getRootLogger();
 					kv.connect();
 
-					String key = "key";
-					for (int i = 0; i < 100; ++i) {
+					String key = "key" + "" + (int) Thread.currentThread().getId();
+					for (int i = 0; i < 500; ++i) {
 						if (i % 2 == 0) {
 							kv.put(key, "" + (int) Thread.currentThread().getId());
 						} else {
 							kv.get(key);
 						}
+						Thread.currentThread().sleep(500);
 					}
 
 					kv.disconnect();
@@ -178,7 +179,9 @@ public class PerformanceBasicTest extends TestCase {
 
 		for (int i = 0; i < t_count; ++i) {
 			try {
+				logger.info("Trying to join thread: " + i);
 				tarr[i].join();
+				logger.info("DONE joining thread: " + i);
 			} catch (Exception e) {
 				logger.error(e);
 			}
