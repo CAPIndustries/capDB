@@ -135,8 +135,9 @@ public class KVStore implements KVCommInterface {
 		}
 
 		if (!reconnect_responsibly) {
-			displayMessage("Connected!", false);
+			displayMessage("Connected!", reconnect_closed);
 		}
+
 		logger.info("Connection established to " + address + " on port " + port);
 	}
 
