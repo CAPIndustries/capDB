@@ -80,6 +80,11 @@ public class ECS implements IECSClient {
         return active_servers.size();
     }
 
+    public int testGetAvailServerCount() {
+        logger.info("getServerCount: " + available_servers.size());
+        return available_servers.size();
+    }
+
     /**
      * Main entry point for the ECS application.
      * 
