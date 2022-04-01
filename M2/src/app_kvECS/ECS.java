@@ -16,11 +16,11 @@ import java.util.Map;
 import java.util.Collection;
 import java.util.Scanner;
 import java.util.Date;
-import java.util.Stack;
+import java.util.Queue;
 import java.util.TreeMap;
 import java.util.Iterator;
 import java.util.HashMap;
-import java.util.ArrayList;
+import java.util.LinkedList;
 
 import java.text.SimpleDateFormat;
 
@@ -63,7 +63,7 @@ public class ECS implements IECSClient {
     private static boolean shutdown = false;
     private boolean running = false;
     private static TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
-    private Stack<String> available_servers = new Stack<String>();
+    private Queue<String> available_servers = new LinkedList<>();
     private HashMap<String, String> movedServers = new HashMap<String, String>();
     private int zkPort;
     private int port;
@@ -74,7 +74,7 @@ public class ECS implements IECSClient {
     public static ZooKeeper _zooKeeper = null;
     public static String _rootZnode = "/servers";
 
-    public int testGetServerCount(){
+    public int testGetServerCount() {
         logger.info("getServerCount: " + active_servers.size());
         return active_servers.size();
     }
@@ -129,29 +129,24 @@ public class ECS implements IECSClient {
 
             File myObj = new File(config);
             Scanner myReader = new Scanner(myObj);
+            ArrayList<String> servers = new ArrayList<String>();
             while (myReader.hasNextLine()) {
                 String data = myReader.nextLine();
-                available_servers.push(data);
+                servers.add(data);
             }
-            Collections.shuffle(available_servers);
-            // TODO:
-            // 1. Create a stack of unused servers
-            // Use a stack because pop is O(1)
-            // 2. Shuffle this set
-            // 3. When adding a new node, we can just pop the first/last element meaning
-            // it'll
-            // always be random
-            // since the array was shuffled at the start. This is an optimization (reduces
-            // later
-            // calls to random)
             myReader.close();
+
+            Collections.shuffle(servers);
+            for (String server : servers) {
+                available_servers.add(server);
+            }
         } catch (Exception e) {
             exceptionLogger(e);
         }
     }
 
-    public void testrun(){
-   
+    public void testrun() {
+
         try {
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
             new LogSetup("logs/ecs_" + fmt.format(new Date()) + ".log", Level.INFO, true);
@@ -309,10 +304,7 @@ public class ECS implements IECSClient {
                 }
 
                 logger.info("No move events!");
-                updateMetadata();
-
                 // Start the replication... Every server is a coordinator to 2 other replicas
-                HashMap<String, ArrayList<String>> piggies = new HashMap<String, ArrayList<String>>();
                 for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
                     ECSNode node = entry.getValue();
                     // Set all the BOOTED servers to STARTED
@@ -323,6 +315,8 @@ public class ECS implements IECSClient {
                         active_servers.put(key, node);
                     }
                 }
+
+                updateMetadata();
                 sendMetadata();
             } else {
                 logger.info("Have to wait for " + movedServers.size() + " servers to finish moving data ...");
@@ -389,7 +383,7 @@ public class ECS implements IECSClient {
                 logger.error("No more available servers!");
                 return null;
             }
-            String[] serverInfo = available_servers.pop().split("\\s+");
+            String[] serverInfo = available_servers.remove().split("\\s+");
 
             String position = serverInfo[1] + ":" + serverInfo[2];
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -411,6 +405,14 @@ public class ECS implements IECSClient {
             logger.info("Added:" + serverInfo[0] + "(" + serverInfo[1] + ":" + serverInfo[2] + ")");
             active_servers.put(hash, node);
 
+            try {
+                // Rapid fire of events causes missed events in ZooKeeper
+                Thread.sleep(500);
+            } catch (Exception e) {
+                logger.error("Error while sleeping for new nodes");
+                exceptionLogger(e);
+            }
+
             return node;
         } catch (Exception e) {
             logger.error(e);
@@ -427,13 +429,6 @@ public class ECS implements IECSClient {
         ArrayList<IECSNode> nodes = new ArrayList<IECSNode>();
         for (int i = 0; i < count; ++i) {
             IECSNode newNode = addNode(cacheStrategy, cacheSize);
-            try {
-                // Rapid fire of events causes missed events in ZooKeeper
-                Thread.sleep(500);
-            } catch (Exception e) {
-                logger.error("Error while sleeping for new nodes");
-                exceptionLogger(e);
-            }
 
             if (newNode != null) {
                 nodes.add(newNode);
@@ -630,10 +625,12 @@ public class ECS implements IECSClient {
                         String nodeConfig = String.format("%s %s %s", node.getNodeName(), node.getNodeHost(),
                                 node.getNodePort());
                         logger.info("Re adding back: " + nodeConfig);
-                        available_servers.push(nodeConfig);
+                        available_servers.add(nodeConfig);
                         if (crash) {
                             logger.info("Adding another node due to server crash ...");
                             addNode(DEFAULT_CACHE_STRATEGY.name(), DEFAULT_CACHE_SIZE);
+                            // Krishna, verify this if you want the
+                            start();
                         }
                     }
                 }
