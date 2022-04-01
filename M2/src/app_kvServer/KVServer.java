@@ -84,6 +84,7 @@ public class KVServer implements IKVServer {
 	private String storageDirectory;
 	private TreeMap<String, ECSNode> metadata = new TreeMap<String, ECSNode>();
 	private String rawMetadata;
+	private int metadataVersion = 0;
 	private ArrayList<String> movedItems = new ArrayList<String>();
 	private Semaphore reconciliationSem = new Semaphore(2);
 
@@ -171,6 +172,14 @@ public class KVServer implements IKVServer {
 	@Override
 	public String getHostname() {
 		return serverSocket.getInetAddress().getHostName();
+	}
+
+	public String getServerName() {
+		return name;
+	}
+
+	public String getStorageDirectory() {
+		return storageDirectory;
 	}
 
 	@Override
@@ -680,8 +689,16 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	public String getMetadata() {
+	public String getMetadataRaw() {
 		return rawMetadata;
+	}
+
+	public TreeMap<String, ECSNode> getMetadata() {
+		return metadata;
+	}
+
+	public int getMetadataVersion() {
+		return metadataVersion;
 	}
 
 	@Override
@@ -731,6 +748,7 @@ public class KVServer implements IKVServer {
 	@Override
 	public void update(String data) {
 		logger.info("Updating metadata ...");
+		metadataVersion += 1;
 		initKVServer(data);
 		updateReplicas();
 		expireOldData();

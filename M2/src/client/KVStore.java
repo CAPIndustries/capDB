@@ -101,7 +101,7 @@ public class KVStore implements KVCommInterface {
 		}
 
 		reconnect_closed = false;
-		logger.info("Connected");
+		logger.info("Connected to " + this.address + ":" + this.port);
 
 		// Get initial metadata
 		metadata = new TreeMap<String, ECSNode>();
@@ -119,7 +119,11 @@ public class KVStore implements KVCommInterface {
 		}
 
 		if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
-			logger.error("Unable to obtain metadata!");
+			logger.fatal("Unable to obtain metadata!");
+			return;
+		}
+		if (res.getStatus() != StatusType.METADATA) {
+			logger.fatal("Unable to obtain metadata!");
 			return;
 		}
 		buildMetadata(res.getValue());
@@ -213,7 +217,7 @@ public class KVStore implements KVCommInterface {
 		} else {
 			if (res.getStatus() == StatusType.SERVER_NOT_RESPONSIBLE) {
 				logger.info("Got a server unresponsible for put!");
-				if (responsible_connect(res.getValue(), key)) {
+				if (responsible_connect(key)) {
 					// Try it again:
 					return put(key, value);
 				}
@@ -247,7 +251,7 @@ public class KVStore implements KVCommInterface {
 		} else {
 			if (res.getStatus() == StatusType.SERVER_NOT_RESPONSIBLE) {
 				logger.info("Got a server unresponsible for get!");
-				if (responsible_connect(res.getValue(), key)) {
+				if (responsible_connect(key)) {
 					// Try it again:
 					return get(key);
 				} else {
@@ -259,11 +263,9 @@ public class KVStore implements KVCommInterface {
 		return res;
 	}
 
-	private boolean responsible_connect(String data, String key) {
+	private boolean responsible_connect(String key) {
 		reconnect_responsibly = true;
-		logger.info("Reconnecting ...");
-		// Update our version of the metadata
-		buildMetadata(data);
+		logger.info("Reconnecting responsibly...");
 
 		// Find the right server to connect to
 		try {
@@ -280,8 +282,11 @@ public class KVStore implements KVCommInterface {
 			if (node == null) {
 				node = metadata.firstEntry();
 			}
-			// TODO: Fix if no servers are running...
-			logger.debug("Switch to:" + node.getValue().getNodeHost() + node.getValue().getNodePort());
+			if (node == null) {
+				logger.fatal("Empty metadata! Exiting ...");
+				System.exit(1);
+			}
+			logger.info("Switch to:" + node.getValue().getNodeHost() + ":" + node.getValue().getNodePort());
 
 			// Reconnect to the suggested server
 			this.address = node.getValue().getNodeHost();
@@ -317,6 +322,9 @@ public class KVStore implements KVCommInterface {
 							msg = new KVMessage(msgBytes);
 							sendMessage(msg, true);
 							res = receiveMessage(true);
+							if (res.getStatus() == StatusType.METADATA) {
+								buildMetadata(res.getValue());
+							}
 							setMissedHeartbeats(0);
 						} catch (InvalidMessageException e) {
 							logger.error("Unable to construct message!");

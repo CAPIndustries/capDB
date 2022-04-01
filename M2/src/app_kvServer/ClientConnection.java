@@ -5,12 +5,23 @@ import java.io.IOException;
 import java.io.OutputStream;
 import java.io.StringWriter;
 import java.io.PrintWriter;
+import java.io.File;
+
+import java.util.Scanner;
+import java.util.Map;
 
 import java.net.Socket;
+
+import java.security.MessageDigest;
+
+import java.math.BigInteger;
 
 import org.apache.log4j.Logger;
 
 import app_kvServer.IKVServer.Status;
+
+import ecs.ECSNode;
+
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
@@ -38,6 +49,7 @@ public class ClientConnection implements Runnable {
 	private InputStream input;
 	private OutputStream output;
 	KVServer server;
+	private int metadataVersion;
 
 	/**
 	 * Constructs a new CientConnection object for a given TCP socket.
@@ -47,6 +59,7 @@ public class ClientConnection implements Runnable {
 	public ClientConnection(Socket clientSocket, KVServer server) {
 		this.clientSocket = clientSocket;
 		this.server = server;
+		this.metadataVersion = server.getMetadataVersion();
 		this.isOpen = true;
 	}
 
@@ -67,15 +80,99 @@ public class ClientConnection implements Runnable {
 				res = new KVMessage(key,
 						"Server is not is currently blocked for write requests due to reallocation of data!",
 						StatusType.SERVER_WRITE_LOCK);
-			} else if (!this.server.inRange(key)) {
-				logger.info("Incorrect server!");
-				String metadata = this.server.getMetadata();
-				res = new KVMessage(key, metadata, StatusType.SERVER_NOT_RESPONSIBLE);
-				// TODO: Reconnect to the right server with the metadata
+			} else {
+				String responsible_server = getResponsibleServer(key);
+				if (!responsible_server.equals(server.getServerName())) {
+					if (PUT_OP) {
+						logger.info("Incorrect server for PUT");
+						res = new KVMessage(key, "", StatusType.SERVER_NOT_RESPONSIBLE);
+					} else {
+						logger.info("Not connected to coordinator. Trying to see if this server is a replica");
+						res = tryGetKey(responsible_server, key);
+					}
+				}
 			}
 		} catch (Exception e) {
 			logger.error("Error while composing message");
 			logger.error(e.getMessage());
+		}
+
+		return res;
+	}
+
+	private String getResponsibleServer(String key) {
+		// Get hash of the key
+		String hash = "";
+		try {
+			MessageDigest md = MessageDigest.getInstance("MD5");
+			md.update(key.getBytes());
+			byte[] digest = md.digest();
+
+			BigInteger bi = new BigInteger(1, digest);
+			hash = String.format("%0" + (digest.length << 1) + "x", bi);
+		} catch (Exception e) {
+			logger.error("Error while trying to get responsible server for key " + key);
+			exceptionLogger(e);
+
+			return null;
+		}
+
+		Map.Entry<String, ECSNode> successor = server.getMetadata().higherEntry(hash);
+		// If it wraps around:
+		if (successor == null) {
+			successor = server.getMetadata().firstEntry();
+		}
+		return successor.getValue().getNodeName();
+	}
+
+	private KVMessage tryGetKey(String serverName, String key) {
+		File dir = new File(server.getStorageDirectory());
+		File[] directoryListing = dir.listFiles();
+		String metadata = this.server.getMetadataRaw();
+		KVMessage res = null;
+		boolean isReplica = false;
+
+		for (File possibleDir : directoryListing) {
+			try {
+				String replica_name = possibleDir.getName().substring(possibleDir.getName().lastIndexOf('_') + 1);
+				if (possibleDir.isDirectory() && serverName.equals(replica_name)) {
+					isReplica = true;
+					File item = new File(possibleDir + "/" + key);
+					if (item.isFile()) {
+						// Read the file
+						logger.info("Reading data at " + item.getCanonicalPath());
+						StringBuilder fileContents = new StringBuilder((int) item.length());
+						try (Scanner scanner = new Scanner(item)) {
+							while (scanner.hasNextLine()) {
+								fileContents.append(scanner.nextLine() + System.lineSeparator());
+							}
+
+							String value = fileContents.toString().trim();
+							logger.info("Value at replica: " + value);
+							res = new KVMessage(key, value, StatusType.GET_SUCCESS);
+						} catch (Exception e) {
+							logger.error("Error while reading the file at" + item.getCanonicalPath());
+							exceptionLogger(e);
+						}
+					} else {
+						res = new KVMessage(key, "", StatusType.GET_ERROR);
+					}
+				}
+			} catch (Exception e) {
+				logger.error("Error while trying to get keys from replicas");
+				exceptionLogger(e);
+			}
+		}
+
+		if (!isReplica) {
+			logger.info(
+					server.getServerName() + " is not a replica for the coordinator responsibile for key  "
+							+ key);
+			try {
+				res = new KVMessage(key, metadata, StatusType.SERVER_NOT_RESPONSIBLE);
+			} catch (Exception e) {
+				exceptionLogger(e);
+			}
 		}
 
 		return res;
@@ -116,8 +213,16 @@ public class ClientConnection implements Runnable {
 							sum += System.nanoTime() - start;
 							break;
 						case HEARTBEAT:
-							// Just echo it back
-							sendMessage(latestMsg);
+							// Check to see if metadata has to be sent as well
+							int serverMetadataVerion = server.getMetadataVersion();
+							if (serverMetadataVerion != metadataVersion) {
+								metadataVersion = serverMetadataVerion;
+								logger.info("Metadata updated on server");
+								logger.info("Piggybacking metadata on heartbeat ...");
+								sendMetadata();
+							} else {
+								sendMessage(latestMsg);
+							}
 							break;
 						default:
 							logger.warn("<"
@@ -178,7 +283,7 @@ public class ClientConnection implements Runnable {
 			logger.info("Sending initial metadata ...");
 			// Must send the initial metadata
 			KVMessage metadataMessage = new KVMessage("0",
-					this.server.getMetadata(),
+					this.server.getMetadataRaw(),
 					StatusType.METADATA);
 			sendMessage(metadataMessage);
 			logger.info("Sent metadata");
@@ -310,5 +415,12 @@ public class ClientConnection implements Runnable {
 		}
 
 		return msg;
+	}
+
+	private static void exceptionLogger(Exception e) {
+		StringWriter sw = new StringWriter();
+		PrintWriter pw = new PrintWriter(sw);
+		e.printStackTrace(pw);
+		logger.error(sw.toString());
 	}
 }
