@@ -90,6 +90,7 @@ public class KVStore implements KVCommInterface {
 				reconnect();
 			} else {
 				logger.error("Server closed on initial connection!");
+				if(this.test) throw e;
 			}
 			return;
 		}
