@@ -94,6 +94,8 @@ public class KVStore implements KVCommInterface {
 			} else {
 				logger.error("Server closed on initial connection!");
 				displayMessage("Server unresponsive!", true);
+				if (this.test)
+					throw e;
 			}
 			return;
 		}

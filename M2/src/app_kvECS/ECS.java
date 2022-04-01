@@ -74,6 +74,11 @@ public class ECS implements IECSClient {
     public static ZooKeeper _zooKeeper = null;
     public static String _rootZnode = "/servers";
 
+    public int testGetServerCount(){
+        logger.info("getServerCount: " + active_servers.size());
+        return active_servers.size();
+    }
+
     /**
      * Main entry point for the ECS application.
      * 
@@ -143,6 +148,27 @@ public class ECS implements IECSClient {
         } catch (Exception e) {
             exceptionLogger(e);
         }
+    }
+
+    public void testrun(){
+   
+        try {
+            SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
+            new LogSetup("logs/ecs_" + fmt.format(new Date()) + ".log", Level.INFO, true);
+            initServer();
+            logger.info("Initialized Server");
+            initZooKeeper();
+            logger.info("Initialized ZooKeeper");
+        } catch (Exception e) {
+            printError("Cannot start ZooKeeper!");
+            logger.fatal("Cannot start ZooKeeper!");
+            exceptionLogger(e);
+
+            System.exit(1);
+        }
+        logger.info("Running ...");
+
+        setRunning(true);
     }
 
     private void run() {
