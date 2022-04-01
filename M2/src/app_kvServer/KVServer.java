@@ -22,6 +22,8 @@ import java.nio.file.StandardCopyOption;
 import java.util.Date;
 import java.util.Scanner;
 import java.util.Map;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.TreeMap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -29,6 +31,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.Semaphore;
 
 import java.text.SimpleDateFormat;
 
@@ -62,7 +65,8 @@ public class KVServer implements IKVServer {
 	private static final CacheStrategy START_CACHE_STRATEGY = CacheStrategy.LRU;
 	private static final int START_CACHE_SIZE = 16;
 	private static final int MAX_READS = 100;
-	private static final int RECONCILIATION_INTERVAL = 30 * 1000;
+	// private static final int RECONCILIATION_INTERVAL = 30 * 1000;
+	private static final int RECONCILIATION_INTERVAL = 5 * 1000;
 
 	public volatile boolean test = false;
 	public volatile boolean wait = false;
@@ -81,6 +85,7 @@ public class KVServer implements IKVServer {
 	private TreeMap<String, ECSNode> metadata = new TreeMap<String, ECSNode>();
 	private String rawMetadata;
 	private ArrayList<String> movedItems = new ArrayList<String>();
+	private Semaphore reconciliationSem = new Semaphore(2);
 
 	private String replica1 = null;
 	private String replica2 = null;
@@ -482,7 +487,6 @@ public class KVServer implements IKVServer {
 				return;
 			}
 		}
-		// scheduleReconciliation();
 		if (serverSocket != null) {
 			logger.info("Server running ...");
 			while (getStatus() != Status.STOPPED) {
@@ -717,6 +721,7 @@ public class KVServer implements IKVServer {
 			clearStorage();
 
 			close();
+			System.exit(0);
 		} catch (Exception e) {
 			logger.error("Error while shutting down server");
 			exceptionLogger(e);
@@ -906,14 +911,15 @@ public class KVServer implements IKVServer {
 		setNodeData(NodeEvent.COPY_COMPLETE.name());
 	}
 
-	public void reconcileData(boolean pendingShutdown) {
+	public synchronized void reconcileData(boolean pendingShutdown) {
 		logger.info("Reconciling data ...");
+
 		ArrayList<String> replicas = new ArrayList<String>();
 		Map.Entry<String, ECSNode> after1 = metadata.higherEntry(nameHash);
 		if (after1 == null) {
 			after1 = metadata.firstEntry();
 		}
-		if (after1.getKey() != nameHash) {
+		if (after1 != null && after1.getKey() != nameHash) {
 			replicas.add(after1.getValue().getNodeHost() + ":" + after1.getValue().getNodePort() + ":"
 					+ after1.getValue().getNodeName());
 
@@ -922,7 +928,7 @@ public class KVServer implements IKVServer {
 				after2 = metadata.firstEntry();
 			}
 
-			if (after2.getKey() != nameHash) {
+			if (after2 != null && after2.getKey() != nameHash) {
 				replicas.add(after2.getValue().getNodeHost() + ":" + after2.getValue().getNodePort() + ":"
 						+ after2.getValue().getNodeName());
 			}
@@ -943,7 +949,32 @@ public class KVServer implements IKVServer {
 		scheduler.scheduleAtFixedRate(new Runnable() {
 			@Override
 			public void run() {
-				reconcileData(false);
+				try {
+					while (true) {
+						// This is weird, I know (acquiring then releasing immediately, but it makes
+						// sense lol)
+						reconciliationSem.acquire();
+						reconciliationSem.release();
+						logger.info("Trying to see if other replications are in progress ...");
+						int requiredPermits = 2;
+						if (replica1 == null) {
+							requiredPermits -= 1;
+						}
+						if (replica2 == null) {
+							requiredPermits -= 1;
+						}
+						if (reconciliationSem.availablePermits() >= requiredPermits) {
+							logger.info("No replications in progress. Proceeding ...");
+							reconcileData(false);
+							break;
+						} else {
+							logger.info(requiredPermits + " replication(s) in progress. Waiting ...");
+						}
+					}
+				} catch (Exception e) {
+					logger.error("Error while running the reconciliation process scheduled event");
+					exceptionLogger(e);
+				}
 			}
 		}, 0, RECONCILIATION_INTERVAL, TimeUnit.MILLISECONDS);
 	}
@@ -979,6 +1010,7 @@ public class KVServer implements IKVServer {
 		if (rawMetadata == null || rawMetadata.isEmpty()) {
 			initKVServer(data);
 			updateReplicas();
+			scheduleReconciliation();
 		} else {
 			update(data);
 		}
@@ -1001,19 +1033,34 @@ public class KVServer implements IKVServer {
 			final String dest = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY,
 					serverName);
 
+			final boolean main_directory = pendingShutdown && i == 0;
 			threads[i] = new Thread(new Runnable() {
 				public void run() {
-					// TODO: Do SCP since servers could be in a different PC
+					try {
+						reconciliationSem.acquire();
+					} catch (Exception e) {
+						logger.error("Error while trying to obtain the reconciliation semaphore");
+						exceptionLogger(e);
+					}
+
 					logger.info("Replicating this server's data to " + address + ":" + port + " in new thread");
 					// Create a replica directory
 					String updatedDest = dest;
-					if (!pendingShutdown) {
+					if (!main_directory) {
 						updatedDest = String.format("%sreplica_%s/", dest, name);
 					}
 					File destDir = new File(updatedDest);
+
 					if (!destDir.exists()) {
-						logger.info("Replica destination directory does not exist. Creating new directory ...");
+						logger.info("Destination directory does not exist. Creating new directory ...");
 						destDir.mkdirs();
+					}
+
+					// Get the already existing entries in the destination server
+					Set<String> existingEntries = new HashSet<String>();
+					File[] destListing = destDir.listFiles();
+					for (File item : destListing) {
+						existingEntries.add(item.getName());
 					}
 
 					File[] directoryListing = dir.listFiles();
@@ -1022,19 +1069,33 @@ public class KVServer implements IKVServer {
 							if (item.isDirectory()) {
 								continue;
 							}
-							logger.info("Replicating:" + item.getName());
+							logger.info("Replicating: " + item.getName());
 							logger.info("From: " + item.toPath());
 							logger.info("To: " + new File(updatedDest + item.getName()).toPath());
 
 							Files.copy(item.toPath(),
 									new File(updatedDest + item.getName()).toPath(),
 									StandardCopyOption.REPLACE_EXISTING);
+							existingEntries.remove(item.getName());
 						} catch (Exception e) {
 							logger.error("Error while trying to replicate data");
 							exceptionLogger(e);
 						}
 					}
+
+					// Whatever is left in the set are the keys that should be deleted
+					for (String key : existingEntries) {
+						logger.info(key + " no longer exists. Deleting ...");
+						File keyFile = new File(updatedDest + key);
+						if (keyFile.delete()) {
+							logger.info(key + " deleted.");
+						} else {
+							logger.error("Failed to deleted " + key);
+						}
+					}
+
 					logger.info("Replication complete in " + serverName + "!");
+					reconciliationSem.release();
 				}
 			});
 			threads[i].start();

@@ -7,8 +7,6 @@ import java.net.Inet6Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 
-import java.net.*;
-
 import java.util.Enumeration;
 import java.util.Collections;
 import java.util.Arrays;
@@ -536,38 +534,10 @@ public class ECS implements IECSClient {
             String key = entry.getKey();
             ECSNode node = entry.getValue();
             try {
-                // Since this server is to be removed, its successor must be the new coordinator
-                // Hence replicate the latest data to the replicas (if there are any)
-                // Map.Entry<String, ECSNode> after1 = active_servers.higherEntry(key);
-                // if (after1 == null) {
-                // after1 = active_servers.firstEntry();
-                // }
-                // Map.Entry<String, ECSNode> after2 =
-                // active_servers.higherEntry(after1.getKey());
-                // if (after2 == null) {
-                // after2 = active_servers.firstEntry();
-                // }
-
-                // if (after1.getKey() != key) {
-                // String replicas = after1.getValue().getNodeHost() + ":" +
-                // after1.getValue().getNodePort()
-                // + ":" + after1.getValue().getNodeName();
-                // if (after1.getKey() != after2.getKey() && after2.getKey() != key) {
-                // replicas += "," + after2.getValue().getNodeHost() + ":" +
-                // after2.getValue().getNodePort()
-                // + ":" + after2.getValue().getNodeName();
-                // }
-                // logger.info("Replicas for " + serverName + ": " + replicas);
-
-                // String shutdown = NodeEvent.SHUTDOWN.name() + "~" + replicas;
-                // byte[] data = shutdown.getBytes();
-                // _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
-                // }
                 String shutdown = NodeEvent.SHUTDOWN.name();
                 byte[] data = shutdown.getBytes();
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
 
-                // TODO: Delete the zk node ONLY after the data has moved
                 node.setStatus(Status.SHUTDOWN);
                 active_servers.put(key, node);
 

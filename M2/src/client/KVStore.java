@@ -3,6 +3,8 @@ package client;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.StringWriter;
+import java.io.PrintWriter;
 
 import java.net.Socket;
 import java.net.UnknownHostException;
@@ -12,7 +14,6 @@ import java.util.Map;
 import java.util.TreeMap;
 import java.util.Iterator;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -52,7 +53,7 @@ public class KVStore implements KVCommInterface {
 	private OutputStream output;
 	private InputStream input;
 	private long lastResponse;
-	ScheduledFuture<?> heartbeatThread;
+	ScheduledExecutorService scheduler;
 	private int missedHeartbeats = 0;
 	public int output_port;
 	private TreeMap<String, ECSNode> metadata = null;
@@ -72,8 +73,8 @@ public class KVStore implements KVCommInterface {
 
 	@Override
 	public void connect() throws UnknownHostException, IOException {
-		if (!reconnect_responsibly) {
-			System.out.println(PROMPT + "Trying to connect ...");
+		if (!reconnect_responsibly && !reconnect_closed) {
+			displayMessage("Trying to connect ...", false);
 		}
 		logger.info("Trying to connect ...");
 
@@ -87,9 +88,12 @@ public class KVStore implements KVCommInterface {
 			setRunning(true);
 		} catch (Exception e) {
 			if (reconnect_closed) {
+				displayMessage("Server " + address + ":" + port + " is down", false);
+				clientSocket = null;
 				reconnect();
 			} else {
 				logger.error("Server closed on initial connection!");
+				displayMessage("Server unresponsive!", true);
 			}
 			return;
 		}
@@ -120,11 +124,12 @@ public class KVStore implements KVCommInterface {
 
 		// TODO: Try and figure out what the problem is:
 		if (!test) {
+			scheduler = Executors.newScheduledThreadPool(1);
 			scheduleHeartbeat();
 		}
 
 		if (!reconnect_responsibly) {
-			System.out.println(PROMPT + "Connected!");
+			displayMessage("Connected!", false);
 		}
 		logger.info("Connection established to " + address + " on port " + port);
 	}
@@ -156,18 +161,22 @@ public class KVStore implements KVCommInterface {
 	@Override
 	public void disconnect() {
 		try {
-			if (!reconnect_responsibly) {
-				System.out.println(PROMPT + "Trying to disconnect ...");
+			if (scheduler != null) {
+				scheduler.shutdownNow();
+				scheduler = null;
 			}
-			logger.info("Trying to disconnect ...");
 			setRunning(false);
 			if (clientSocket != null) {
+				if (!reconnect_responsibly && !reconnect_closed) {
+					displayMessage("Trying to disconnect ...", false);
+				}
+				logger.info("Trying to disconnect ...");
 				input.close();
 				output.close();
 				clientSocket.close();
 				clientSocket = null;
-				if (!reconnect_responsibly) {
-					System.out.println(PROMPT + "Connection closed!");
+				if (!reconnect_responsibly && !reconnect_closed) {
+					displayMessage("Connection closed!", true);
 				}
 				logger.info("Connection closed!");
 			}
@@ -239,6 +248,8 @@ public class KVStore implements KVCommInterface {
 				if (responsible_connect(res.getValue(), key)) {
 					// Try it again:
 					return get(key);
+				} else {
+					printError("Unable to connect to correct server!");
 				}
 			}
 		}
@@ -281,47 +292,56 @@ public class KVStore implements KVCommInterface {
 		} catch (Exception e) {
 			logger.error("Error while trying to obtain correct server");
 			logger.error(e.getMessage());
+			exceptionLogger(e);
+
 			return false;
 		}
 	}
 
 	private void scheduleHeartbeat() {
-		ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+		logger.info("Scheduling heartbeats running every " + HEARTBEAT_INTERVAL / 1000 + " seconds");
 
-		heartbeatThread = scheduler.scheduleAtFixedRate(new Runnable() {
-			@Override
-			public void run() {
-				if (getLastResponse() + HEARTBEAT_TRANSMISSION * (1 + missedHeartbeats) < System.currentTimeMillis()) {
-					byte msgBytes[] = { StatusType.HEARTBEAT.getVal() };
-					KVMessage msg;
-					KVMessage res;
+		if (scheduler != null) {
+			scheduler.scheduleAtFixedRate(new Runnable() {
+				@Override
+				public void run() {
+					if (getLastResponse() + HEARTBEAT_TRANSMISSION * (1 + missedHeartbeats) < System
+							.currentTimeMillis()) {
+						byte msgBytes[] = { StatusType.HEARTBEAT.getVal() };
+						KVMessage msg;
+						KVMessage res;
 
-					try {
-						msg = new KVMessage(msgBytes);
-						sendMessage(msg, true);
-						res = receiveMessage(true);
-						setMissedHeartbeats(0);
-					} catch (InvalidMessageException e) {
-						logger.error("Unable to construct message!");
-						logger.error(e);
-					} catch (Exception e) {
-						setMissedHeartbeats(missedHeartbeats + 1);
-						if (missedHeartbeats > HEARTBEAT_RETRIES) {
-							disconnect("Server unresponsive... Shutting down!");
-							reconnect();
-						} else {
-							if (missedHeartbeats == 1) {
-								System.out.println();
-								System.out.println(PROMPT + "Server not responding");
-								logger.warn("Server not responding. Sending heartbeats ...");
+						try {
+							msg = new KVMessage(msgBytes);
+							sendMessage(msg, true);
+							res = receiveMessage(true);
+							setMissedHeartbeats(0);
+						} catch (InvalidMessageException e) {
+							logger.error("Unable to construct message!");
+							logger.error(e);
+						} catch (Exception e) {
+							setMissedHeartbeats(missedHeartbeats + 1);
+							if (missedHeartbeats > HEARTBEAT_RETRIES) {
+								displayMessage("Server unresponsive. Trying to find another server ...", false);
+								reconnect_closed = true;
+								disconnect();
+								reconnect();
+							} else {
+								if (missedHeartbeats == 1) {
+									System.out.println();
+									displayMessage("Server not responding", false);
+									logger.warn("Server not responding. Sending heartbeats ...");
+								}
+								logger.warn("Heartbeat " + missedHeartbeats + " of " + HEARTBEAT_RETRIES);
+								displayMessage("Trial " + missedHeartbeats + " of " + HEARTBEAT_RETRIES, false);
 							}
-							logger.warn("Heartbeat " + missedHeartbeats + " of " + HEARTBEAT_RETRIES);
-							System.out.println("Trial " + missedHeartbeats + " of " + HEARTBEAT_RETRIES);
 						}
 					}
 				}
-			}
-		}, 0, HEARTBEAT_INTERVAL, TimeUnit.MILLISECONDS);
+			}, 0, HEARTBEAT_INTERVAL, TimeUnit.MILLISECONDS);
+		} else {
+			logger.fatal("Unable to run heartbeat scheduler task!");
+		}
 	}
 
 	public int getMissedHeartbeats() {
@@ -334,10 +354,12 @@ public class KVStore implements KVCommInterface {
 
 	public void disconnect(String msg) {
 		try {
-			heartbeatThread.cancel(false);
-			System.out.println(PROMPT + msg);
-			System.out.print("KVClient> ");
 			logger.warn(msg);
+			displayMessage(msg, true);
+			if (scheduler != null) {
+				scheduler.shutdownNow();
+				scheduler = null;
+			}
 			setRunning(false);
 			if (clientSocket != null) {
 				input.close();
@@ -352,7 +374,8 @@ public class KVStore implements KVCommInterface {
 	}
 
 	public void reconnect() {
-		logger.info("Trying to find a server to reconnect to");
+		logger.info("Trying to find a server to reconnect to ...");
+		reconnect_closed = true;
 		// Reconnect to the suggested server
 		Iterator<Map.Entry<String, ECSNode>> iter = metadata.entrySet().iterator();
 		ECSNode next_available = null;
@@ -372,12 +395,15 @@ public class KVStore implements KVCommInterface {
 				break;
 			}
 		}
+
 		if (next_available == null) {
-			logger.info("No more (known) servers available ...");
+			String msg = "No more (known) servers available!";
+			logger.info(msg);
+			displayMessage(msg, true);
 		} else {
 			this.address = next_available.getNodeHost();
 			this.port = next_available.getNodePort();
-			reconnect_closed = true;
+			displayMessage("Trying to connect to " + this.address + ":" + this.port, false);
 			try {
 				logger.info("Reconnnecting to " + this.address + ":" + this.port);
 				connect();
@@ -500,6 +526,20 @@ public class KVStore implements KVCommInterface {
 	}
 
 	private void printError(String error) {
-		System.out.println(PROMPT + "Error! " + error);
+		displayMessage("Error! " + error, true);
+	}
+
+	private void displayMessage(String message, boolean newLine) {
+		System.out.println(PROMPT + message);
+		if (newLine) {
+			System.out.print("KVClient> ");
+		}
+	}
+
+	private static void exceptionLogger(Exception e) {
+		StringWriter sw = new StringWriter();
+		PrintWriter pw = new PrintWriter(sw);
+		e.printStackTrace(pw);
+		logger.error(sw.toString());
 	}
 }

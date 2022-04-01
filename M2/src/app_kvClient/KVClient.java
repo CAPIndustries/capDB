@@ -27,16 +27,20 @@ public class KVClient implements IKVClient {
 
 	private static Logger logger = Logger.getRootLogger();
 	private BufferedReader stdin;
-	private KVStore store;
+	private KVStore store = null;
 	private boolean running = true;
 	private int serverPort;
 
 	@Override
 	public void newConnection(String hostname, int port) throws UnknownHostException, IOException {
 		logger.info("Trying to connect to: " + hostname + ":" + port);
+		if (store != null) {
+			logger.info("Reconnecting once more ...");
+			store.disconnect();
+			store = null;
+		}
 		store = new KVStore(hostname, port);
 		store.connect();
-		logger.info("Connected");
 	}
 
 	@Override
@@ -63,14 +67,6 @@ public class KVClient implements IKVClient {
 	}
 
 	public void run() {
-		// TODO: for debugging (delete later):
-		// try {
-		// if (store == null) {
-		// this.newConnection("127.0.0.1", 9696);
-		// }
-		// } catch (Exception e) {
-		// }
-
 		while (running) {
 			stdin = new BufferedReader(new InputStreamReader(System.in));
 			System.out.print(PROMPT);
