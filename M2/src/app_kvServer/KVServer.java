@@ -548,6 +548,38 @@ public class KVServer implements IKVServer {
 		return clientRequests.containsKey(key);
 	}
 
+	public void crash(String server) {
+		logger.info("Crash at:" + server);
+		File destDir = new File(this.storageDirectory);
+		String fromDest = String.format("%sreplica_%s/", this.storageDirectory, server);
+		File fromDestDir = new File(fromDest);
+		if (!destDir.exists()) {
+			logger.info("No replica at " + fromDest + " ...");
+		} else {
+			logger.info("Copying files from replica at:" + fromDest);
+			File[] directoryListing = fromDestDir.listFiles();
+			for (File item : directoryListing) {
+				try {
+					Files.copy(item.toPath(),
+							new File(this.storageDirectory + item.getName()).toPath(),
+							StandardCopyOption.REPLACE_EXISTING);
+				} catch (Exception e) {
+					logger.error("Error while trying to move keys");
+					exceptionLogger(e);
+				}
+			}
+			deleteDirectory(String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, server));
+		}
+
+		try {
+			Thread.sleep(500);
+		} catch (Exception e) {
+			logger.error("Error while sleeping!");
+			exceptionLogger(e);
+		}
+		setNodeData(NodeEvent.CRASH_COMPLETE.name());
+	}
+
 	/**
 	 * @param args contains the program's input args (here for signature purposes)
 	 */
@@ -926,6 +958,12 @@ public class KVServer implements IKVServer {
 			}
 		}
 
+		try {
+			Thread.sleep(500);
+		} catch (Exception e) {
+			logger.error("Error while sleeping!");
+			exceptionLogger(e);
+		}
 		setNodeData(NodeEvent.COPY_COMPLETE.name());
 	}
 

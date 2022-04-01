@@ -73,6 +73,9 @@ public class ZooKeeperWatcher implements Watcher {
                                     case COPY_COMPLETE:
                                         caller.completeCopy(path);
                                         break;
+                                    case CRASH_COMPLETE:
+                                        caller.crashComplete(path);
+                                        break;
                                     // Skip the following events:
                                     case START:
                                     case BOOT:
@@ -81,6 +84,7 @@ public class ZooKeeperWatcher implements Watcher {
                                     case COPY:
                                     case MOVE:
                                     case SHUTDOWN:
+                                    case CRASH:
                                         break;
                                     default:
                                         logger.error("Unrecognized node event:" + data[0]);

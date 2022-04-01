@@ -65,6 +65,7 @@ public class ECS implements IECSClient {
     private static TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
     private Queue<String> available_servers = new LinkedList<>();
     private HashMap<String, String> movedServers = new HashMap<String, String>();
+    private HashMap<String, String> crashedServers = new HashMap<String, String>();
     private int zkPort;
     private int port;
     private String ECSIP;
@@ -582,6 +583,8 @@ public class ECS implements IECSClient {
     }
 
     public synchronized boolean nodeRemovedCreated() {
+        ArrayList<Map.Entry<String, ECSNode>> nodesCrashed = new ArrayList<Map.Entry<String, ECSNode>>();
+        boolean update_metadata = false;
         Iterator<Map.Entry<String, ECSNode>> active_iter = active_servers.entrySet().iterator();
 
         while (active_iter.hasNext()) {
@@ -617,20 +620,15 @@ public class ECS implements IECSClient {
                             System.exit(0);
                         }
                     } else {
-                        // Broadcast the updated metadata
-                        updateMetadata();
-                        sendMetadata();
-
                         // Add it back to the list of available servers
                         String nodeConfig = String.format("%s %s %s", node.getNodeName(), node.getNodeHost(),
                                 node.getNodePort());
                         logger.info("Re adding back: " + nodeConfig);
                         available_servers.add(nodeConfig);
                         if (crash) {
-                            logger.info("Adding another node due to server crash ...");
-                            addNode(DEFAULT_CACHE_STRATEGY.name(), DEFAULT_CACHE_SIZE);
-                            // Krishna, verify this if you want the
-                            start();
+                            nodesCrashed.add(entry);
+                        } else {
+                            update_metadata = true;
                         }
                     }
                 }
@@ -648,7 +646,63 @@ public class ECS implements IECSClient {
             }
         }
 
+        for (Map.Entry<String, ECSNode> entry : nodesCrashed) {
+            nodeCrashed(entry);
+            String path = String.format("%s/%s", _rootZnode, entry.getValue().getNodeName());
+            logger.info("Putting for crashed:" + path);
+            crashedServers.put(path, entry.getValue().getNodeName());
+        }
+
+        if (update_metadata) {
+            // Broadcast the updated metadata
+            updateMetadata();
+            sendMetadata();
+        }
+
         return true;
+    }
+
+    private void nodeCrashed(Map.Entry<String, ECSNode> entry) {
+        String crashedEvent = NodeEvent.CRASH.name() + "~" + entry.getValue().getNodeName();
+        byte[] data = crashedEvent.getBytes();
+        logger.info("Sending:" + crashedEvent);
+
+        try {
+            Map.Entry<String, ECSNode> new_coord = active_servers.higherEntry(entry.getKey());
+            // If it wraps around:
+            if (new_coord == null) {
+                new_coord = active_servers.firstEntry();
+            }
+            String path = String.format("%s/%s", _rootZnode, new_coord.getValue().getNodeName());
+            _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+        } catch (Exception e) {
+            logger.error("Error while sending CRASH to " + entry.getValue().getNodeName());
+            exceptionLogger(e);
+        }
+    }
+
+    public void crashComplete(String path) {
+        logger.info("Adding another node due to server crash ...");
+        // Start up any newly added servers due to the crash:
+        addNode(DEFAULT_CACHE_STRATEGY.name(), DEFAULT_CACHE_SIZE);
+        try {
+            Thread.sleep(500);
+        } catch (Exception e) {
+            logger.error("Error while sleeping!");
+            exceptionLogger(e);
+        }
+        logger.info("path:" + path);
+        String crashedPath = crashedServers.remove(path);
+        if (crashedPath == null) {
+            logger.error("Unable to find deleted node!");
+        }
+        if (crashedServers.size() == 0) {
+            logger.info("Starting up the servers ...");
+            // As part of start, it also updates the metadata and broadcasts it
+            start();
+        } else {
+            logger.info("Still waiting on " + crashedServers.size() + " crashed servers");
+        }
     }
 
     private Map.Entry<String, ECSNode> getEntry(String serverName) {

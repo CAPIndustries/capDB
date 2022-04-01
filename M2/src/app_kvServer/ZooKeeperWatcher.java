@@ -89,6 +89,9 @@ public class ZooKeeperWatcher implements Watcher {
                                 String[] range = { b[0], b[1] };
                                 caller.moveData(range, b[2]);
                                 break;
+                            case CRASH:
+                                caller.crash(data[1]);
+                                break;
                             case MOVE:
                                 caller.completeMove();
                                 break;
