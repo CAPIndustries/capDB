@@ -59,7 +59,7 @@ public class ECSNode implements IECSNode {
         Runtime run = Runtime.getRuntime();
         String[] envp = { "host=" + this.host, "name=" + this.name, "port=" + this.port,
                 "zkPort=" + this.zkPort, "ECS_host=" +
-                        this.ECSIP
+                        this.ECSIP, "isLoadReplica=" + false, "parentName=" + ""
         };
         try {
             final Process proc = run.exec(script, envp);

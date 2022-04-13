@@ -582,7 +582,7 @@ public class ECS implements IECSClient {
     public void setRunning(boolean running) {
         this.running = running;
     }
-
+    
     public boolean isRunning() {
         return running;
     }
