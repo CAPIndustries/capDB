@@ -36,7 +36,7 @@ public class AllTests {
 	private static int serverPort = 50019; 
 	private static Logger logger;
 	private static ECS ECSServer; 
-	private static String configPath = "/homes/s/solank23/ece419/capDB/M2/test_cases/test.config";
+	private static String configPath = "/homes/s/solank23/ece419/capDB/M2/test_cases/testPerf10.config";
 
 	// TODO - in teardown remove root node in zookeeper
 	static {
@@ -89,11 +89,11 @@ public class AllTests {
 		TestSuite clientSuite = new TestSuite("Basic Storage ServerTest-Suite");
 		logger.info("Starting test: ");
 		// ECS.ece = ECSServer;
-		clientSuite.addTestSuite(ECSTest.class);
+		// clientSuite.addTestSuite(ECSTest.class);
 		// logger.debug("Hello");
 		ECSServer.testrun();
-		ECSServer.addNode("ant", 20);
-		// ECSServer.addNodes(5,"any",20);
+		// ECSServer.addNode("ant", 20);
+		ECSServer.addNodes(10,"any",20);
 		// // ECSServer.start();
 
 		try {
@@ -138,9 +138,9 @@ public class AllTests {
 		// ConnectionTest.server = ECSServer;
 		// clientSuite.addTestSuite(ConnectionTest.class);
 
-		// PerformanceBasicTest.port = 50019;
-		// PerformanceBasicTest.server = ECSServer;
-		// clientSuite.addTestSuite(PerformanceBasicTest.class);
+		PerformanceBasicTest.port = 50019;
+		PerformanceBasicTest.server = ECSServer;
+		clientSuite.addTestSuite(PerformanceBasicTest.class);
 
 		// clientSuite.addTestSuite(ECSTest.class)
 		// BasicTest.server = ECSServer;
