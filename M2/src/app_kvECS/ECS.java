@@ -653,9 +653,6 @@ public class ECS implements IECSClient {
 
         for (Map.Entry<String, ECSNode> entry : nodesCrashed) {
             nodeCrashed(entry);
-            String path = String.format("%s/%s", _rootZnode, entry.getValue().getNodeName());
-            logger.info("Putting for crashed:" + path);
-            crashedServers.put(path, entry.getValue().getNodeName());
         }
 
         if (update_metadata) {
@@ -680,6 +677,7 @@ public class ECS implements IECSClient {
             }
             String path = String.format("%s/%s", _rootZnode, new_coord.getValue().getNodeName());
             _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+            crashedServers.put(path, entry.getValue().getNodeName());
         } catch (Exception e) {
             logger.error("Error while sending CRASH to " + entry.getValue().getNodeName());
             exceptionLogger(e);
@@ -819,6 +817,10 @@ public class ECS implements IECSClient {
         try {
             if (movedServer != null) {
                 logger.info("Going to complete the move in: " + movedServer);
+                Map.Entry<String, ECSNode> newServer = getEntry(movedServer);
+                ECSNode node = newServer.getValue();
+                node.setStatus(Status.STARTED);
+                active_servers.put(newServer.getKey(), node);
 
                 byte[] data = NodeEvent.MOVE.name().getBytes();
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
@@ -827,6 +829,7 @@ public class ECS implements IECSClient {
 
                 if (movedServers.size() == 0) {
                     // All moves have been issued. Now we can broadcast the UPDATED metadata
+                    Thread.sleep(1000);
                     updateMetadata();
                     sendMetadata();
                 }

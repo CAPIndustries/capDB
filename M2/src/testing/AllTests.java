@@ -36,7 +36,9 @@ public class AllTests {
 	private static int serverPort = 50019; 
 	private static Logger logger;
 	private static ECS ECSServer; 
-	private static String configPath = "/homes/s/solank23/ece419/capDB/M2/test_cases/testPerf10.config";
+
+	private static String configPath = "";
+
 
 	// TODO - in teardown remove root node in zookeeper
 	static {

@@ -38,3 +38,5 @@ TODO
 
 # temp files
 *.nfs*
+
+*.cfg

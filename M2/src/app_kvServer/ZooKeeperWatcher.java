@@ -102,6 +102,7 @@ public class ZooKeeperWatcher implements Watcher {
                             // Ignored events:
                             case BOOT:
                             case COPY_COMPLETE:
+                            case CRASH_COMPLETE:
                                 break;
                             default:
                                 logger.error("Unrecognized node event:" + data[0]);

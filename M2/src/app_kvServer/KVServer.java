@@ -587,7 +587,10 @@ public class KVServer implements IKVServer {
 					exceptionLogger(e);
 				}
 			}
-			deleteDirectory(String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, server));
+			logger.info("Copy completed.");
+			String deletedDirectory = String.format("%s/%s", ROOT_STORAGE_DIRECTORY, server);
+			logger.info("Deleting directory:" + deletedDirectory);
+			deleteDirectory(deletedDirectory);
 		}
 
 		try {
@@ -965,6 +968,10 @@ public class KVServer implements IKVServer {
 		for (File item : directoryListing) {
 			try {
 				logger.info("File name:" + item.getName());
+				if (item.isDirectory()) {
+					logger.info("File is a directory. Continuing...");
+					continue;
+				}
 				MessageDigest md = MessageDigest.getInstance("MD5");
 				md.update(item.getName().getBytes());
 				byte[] digest = md.digest();
