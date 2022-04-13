@@ -143,10 +143,10 @@ public class PerformanceBasicTest extends TestCase {
 			@Override
 			public void run() {
 				try {
-					int[] test = new int[]{50019, 50013, 50012, 50011, 50010};
-					int index = (int) Thread.currentThread().getId() % 5;
+					int test = 50019;
+					int index = (int) Thread.currentThread().getId() % 10;
 					logger.info("Thread " + "" + (int) Thread.currentThread().getId() + " - " + index);
-					KVStore kv = new KVStore("localhost", test[index]);
+					KVStore kv = new KVStore("localhost", test + index);
 					Logger logger = Logger.getRootLogger();
 					kv.connect();
 
@@ -169,7 +169,7 @@ public class PerformanceBasicTest extends TestCase {
 			}
 		};
 
-		int t_count = 100;
+		int t_count = 1;
 		Thread[] tarr = new Thread[t_count];
 
 		for (int i = 0; i < t_count; ++i) {
