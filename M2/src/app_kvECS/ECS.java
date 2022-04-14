@@ -65,7 +65,7 @@ public class ECS implements IECSClient {
     private static boolean shutdown = false;
     private boolean running = false;
     private static TreeMap<String, ECSNode> active_servers = new TreeMap<String, ECSNode>();
-    private Queue<String> available_servers = new LinkedList<>();
+    private String config_file = "";
     private HashMap<String, String> movedServers = new HashMap<String, String>();
     private HashMap<String, String> crashedServers = new HashMap<String, String>();
     private int zkPort;
@@ -76,6 +76,7 @@ public class ECS implements IECSClient {
 
     public static ZooKeeper _zooKeeper = null;
     public static String _rootZnode = "/servers";
+    public static String _availableServersZnode = String.format("%s/%s", _rootZnode, "available");
 
     public int testGetServerCount() {
         logger.info("getServerCount: " + active_servers.size());
@@ -83,8 +84,54 @@ public class ECS implements IECSClient {
     }
 
     public int testGetAvailServerCount() {
-        logger.info("getServerCount: " + available_servers.size());
-        return available_servers.size();
+        logger.info("getServerCount: " + getAvailServerCount());
+
+        return getAvailServerCount();
+    }
+
+    public int getAvailServerCount() {
+        int count = -1;
+        try {
+            count = _zooKeeper.getChildren(_availableServersZnode, false).size();
+        } catch (Exception e) {
+            logger.error("Error while getting available server count");
+            exceptionLogger(e);
+        }
+        logger.info("getServerCount: " + count);
+
+        return count;
+    }
+
+    public String getAvailServer() {
+        try {
+            List<String> available_servers = _zooKeeper.getChildren(_availableServersZnode, false);
+
+            if (available_servers.size() == 0) {
+                return "";
+            }
+            String server = available_servers.get(0);
+            String path = String.format("%s/%s", _availableServersZnode, server);
+            _zooKeeper.delete(path, _zooKeeper.exists(path,
+                    false).getVersion());
+
+            return server;
+        } catch (Exception e) {
+            logger.error("Error while getting all available servers");
+            exceptionLogger(e);
+
+            return "";
+        }
+    }
+
+    public void addAvailServer(String server) {
+        try {
+            byte[] data = "".getBytes();
+            String path = String.format("%s/%s", _availableServersZnode, server);
+            _zooKeeper.create(path, data, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        } catch (Exception e) {
+            logger.error("Error while adding available server:" + server);
+            exceptionLogger(e);
+        }
     }
 
     /**
@@ -124,26 +171,7 @@ public class ECS implements IECSClient {
             logger = new LogSetup("logs", "ecs_" + fmt.format(new Date()), Level.ALL, true).getLogger();
             this.port = port;
             this.zkPort = zkPort;
-            this.ECSIP = getIP();
-            if (this.ECSIP == null) {
-                logger.fatal("Unable to obtain IP. Cannot continue");
-                System.exit(1);
-            }
-
-            File myObj = new File(config);
-            Scanner myReader = new Scanner(myObj);
-            ArrayList<String> servers = new ArrayList<String>();
-            while (myReader.hasNextLine()) {
-                String data = myReader.nextLine();
-                servers.add(data);
-            }
-
-            myReader.close();
-
-            Collections.shuffle(servers);
-            for (String server : servers) {
-                available_servers.add(server);
-            }
+            this.config_file = config;
         } catch (Exception e) {
             exceptionLogger(e);
         }
@@ -199,35 +227,6 @@ public class ECS implements IECSClient {
         }
     }
 
-    private String getIP() {
-        String ip;
-        try {
-            Enumeration<NetworkInterface> interfaces = NetworkInterface.getNetworkInterfaces();
-            while (interfaces.hasMoreElements()) {
-                NetworkInterface iface = interfaces.nextElement();
-                // filters out 127.0.0.1 and inactive interfaces
-                if (iface.isLoopback() || !iface.isUp())
-                    continue;
-
-                Enumeration<InetAddress> addresses = iface.getInetAddresses();
-                while (addresses.hasMoreElements()) {
-                    InetAddress addr = addresses.nextElement();
-
-                    // *EDIT*
-                    if (addr instanceof Inet6Address)
-                        continue;
-
-                    return addr.getHostAddress();
-                }
-            }
-        } catch (Exception e) {
-            logger.error("Error while obtaining server IP address");
-            exceptionLogger(e);
-        }
-
-        return null;
-    }
-
     private void initServer() {
         logger.info("Initializing server ...");
 
@@ -249,9 +248,36 @@ public class ECS implements IECSClient {
         logger.info("Initializing Zoo Keeper");
         _zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, new ZooKeeperWatcher(this));
 
-        // Create the root node
+        // Create the root nodes for the /servers and /servers/available_servers
         byte[] data = "".getBytes();
-        _zooKeeper.create(_rootZnode, data, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        ArrayList<Op> opList = new ArrayList<Op>();
+        opList.add(Op.create(_rootZnode, data,
+                ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT));
+
+        // Add the list of available servers
+        File myObj = new File(config_file);
+        Scanner myReader = new Scanner(myObj);
+        ArrayList<String> servers = new ArrayList<String>();
+        while (myReader.hasNextLine()) {
+            String line = myReader.nextLine();
+            servers.add(line.replace(' ', '_'));
+        }
+
+        myReader.close();
+        Collections.shuffle(servers);
+
+        opList.add(Op.create(_availableServersZnode, data,
+                ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                CreateMode.PERSISTENT));
+        for (String server : servers) {
+            String path = String.format("%s/%s", _availableServersZnode, server);
+            opList.add(Op.create(path, data,
+                    ZooDefs.Ids.OPEN_ACL_UNSAFE,
+                    CreateMode.PERSISTENT));
+        }
+        _zooKeeper.multi(opList);
+
         _zooKeeper.exists(_rootZnode,
                 true);
         _zooKeeper.getChildren(_rootZnode,
@@ -382,11 +408,12 @@ public class ECS implements IECSClient {
     public synchronized IECSNode addNode(String cacheStrategy, int cacheSize) {
         logger.info("Attempting to add a node ...");
         try {
-            if (available_servers.size() == 0) {
+            String avail_server = getAvailServer();
+            if (avail_server.equals("")) {
                 logger.error("No more available servers!");
                 return null;
             }
-            String[] serverInfo = available_servers.remove().split("\\s+");
+            String[] serverInfo = avail_server.split("_");
 
             String position = serverInfo[1] + ":" + serverInfo[2];
             MessageDigest md = MessageDigest.getInstance("MD5");
@@ -515,7 +542,7 @@ public class ECS implements IECSClient {
                 node.setStatus(Status.SHUTDOWN);
                 active_servers.put(key, node);
 
-                String path = String.format("%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
                 if (_zooKeeper.exists(path,
                         false) != null) {
                     List<String> children = _zooKeeper.getChildren(path, false);
@@ -535,7 +562,25 @@ public class ECS implements IECSClient {
             if (opList.size() > 0) {
                 _zooKeeper.multi(opList);
             } else {
-                logger.info("All servers shut down! Deleting root ZK node ...");
+                logger.info("All servers shut down! Deleting available servers list & root node ...");
+                opList.clear();
+                if (_zooKeeper.exists(_availableServersZnode,
+                        false) != null) {
+                    List<String> children = _zooKeeper.getChildren(_availableServersZnode, false);
+                    // Delete every node in that level
+                    for (String child : children) {
+                        String subpath = String.format("%s/%s", _availableServersZnode, child);
+                        logger.info("Deleting: " + String.format("%s/%s", _availableServersZnode, child));
+                        opList.add(Op.delete(subpath, _zooKeeper.exists(subpath,
+                                false).getVersion()));
+                    }
+                    // Delete the level itself
+                    opList.add(Op.delete(_availableServersZnode, _zooKeeper.exists(_availableServersZnode,
+                            false).getVersion()));
+                    _zooKeeper.multi(opList);
+                    logger.info("Available servers list deleted! Deleting root ZK node ...");
+                }
+
                 // Delete the ZooKeeper root node
                 if (_zooKeeper.exists(_rootZnode,
                         false) != null) {
@@ -646,25 +691,15 @@ public class ECS implements IECSClient {
             active_servers.remove(entry.getKey());
 
             if (shutdown) {
-
-                List<String> nodes = _zooKeeper.getChildren(_rootZnode, false);
-                if (nodes.size() == 0) {
-                    logger.info("All servers shut down! Deleting root ZK node ...");
-                    // Delete the ZooKeeper root node
-                    if (_zooKeeper.exists(_rootZnode,
-                            false) != null) {
-                        _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
-                                false).getVersion());
-                    }
-                }
-
+                completeShutdown();
             } else {
                 // Add it back to the list of available servers
-                String nodeConfig = String.format("%s %s %s", entry.getValue().getNodeName(),
+                String nodeConfig = String.format("%s_%s_%s", entry.getValue().getNodeName(),
                         entry.getValue().getNodeHost(),
                         entry.getValue().getNodePort());
                 logger.info("Re adding back: " + nodeConfig);
-                available_servers.add(nodeConfig);
+                addAvailServer(nodeConfig);
+
                 if (crash) {
                     nodeCrashed(entry);
                 } else {
@@ -900,9 +935,15 @@ public class ECS implements IECSClient {
             }
         }
 
-        for (String key : available_servers) {
-            String serverName = key.split("\\s+")[0];
-            nodeList.add(serverName + " (Inactive)");
+        try {
+            List<String> available_servers = _zooKeeper.getChildren(_availableServersZnode, false);
+            for (String key : available_servers) {
+                String serverName = key.split("_")[0];
+                nodeList.add(serverName + " (Inactive)");
+            }
+        } catch (Exception e) {
+            logger.error("Error while getting all available servers");
+            exceptionLogger(e);
         }
 
         return String.join(",", nodeList);
