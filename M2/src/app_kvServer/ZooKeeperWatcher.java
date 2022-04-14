@@ -99,13 +99,11 @@ public class ZooKeeperWatcher implements Watcher {
                                 caller.reconcileData(true);
                                 caller.shutDown();
                                 break;
-                            case SAFE:
-                                caller.handleSafeNode(path);
-                                break;
-                            case HELP:
-                                caller.handleHelpNode(path);
-                                break;
-                            // Ignored events:
+                            case CRITICAL:
+                            case NORMAL:
+                            case BELOW:
+                                caller.handleReplicaStatusChange(NodeEvent.valueOf(data[0]), path);
+                                // Ignored events:
                             case BOOT:
                             case COPY_COMPLETE:
                             case CRASH_COMPLETE:

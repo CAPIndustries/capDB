@@ -7,6 +7,10 @@ public interface IKVServer {
         ADDED, BOOT, STOPPED, LOCKED, STARTED, SHUTDOWN
     };
 
+    public enum OperatingState {
+        CRITICAL, NORMAL, BELOW
+    };
+
     public enum CacheStrategy {
         None, LRU, LFU, FIFO
     };

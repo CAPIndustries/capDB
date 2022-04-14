@@ -17,6 +17,8 @@ import shared.messages.IKVMessage;
 import shared.messages.IKVMessage.StatusType;
 import exceptions.InvalidMessageException;
 
+import app_kvServer.IKVServer.OperatingState;
+
 public class ReplicaConnection {
 
     private String address;
@@ -26,6 +28,9 @@ public class ReplicaConnection {
     private InputStream input;
     public int output_port;
     public String name;
+    public OperatingState operatingState = OperatingState.NORMAL;
+    public boolean added = false;
+
     private static final int BUFFER_SIZE = 1024;
     private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
     private static final char LINE_FEED = 0x0A;

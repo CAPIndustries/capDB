@@ -58,6 +58,7 @@ import app_kvServer.ConcurrentNode;
 import app_kvServer.ZooKeeperWatcher;
 
 import app_kvServer.ReplicaConnection;
+import app_kvServer.IKVServer.OperatingState;
 
 import ecs.IECSNode.NodeEvent;
 import ecs.ECSNode;
@@ -79,6 +80,12 @@ public class KVServer implements IKVServer {
 	private static final int RECONCILIATION_INTERVAL = 5 * 1000;
 	private static final int INITIAL_SCALEUP = 2;
 
+	private static final int CRITICAL_THRESHOLD = 5;
+	private static final int BELOW_THRESHOLD = 3;
+	private static final int UP_FACTOR = 1;
+	private static final int DOWN_FACTOR = 1;
+
+	private OperatingState operatingState = OperatingState.NORMAL;
 	public volatile boolean test = false;
 	public volatile boolean wait = false;
 	ScheduledExecutorService healthScheduler;
@@ -105,6 +112,7 @@ public class KVServer implements IKVServer {
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode;
 	public String _availableServersZnode;
+	private ThreadGroup connections = new ThreadGroup("connections");
 
 	// For testing purpose we test autoscale once we have 2 connections
 	private int clientCount = 0;
@@ -545,11 +553,12 @@ public class KVServer implements IKVServer {
 			while (getStatus() != Status.STOPPED) {
 				try {
 					Socket client = serverSocket.accept();
+					String t_name = client.getInetAddress().getHostAddress() + ":"
+							+ client.getPort();
 					ClientConnection connection = new ClientConnection(client, this);
-					new Thread(connection).start();
+					new Thread(connections, connection, t_name).start();
 
-					logger.info("Connected to " + client.getInetAddress().getHostAddress() + ":"
-							+ client.getPort());
+					logger.info("Connected to " + t_name);
 					clientCount += 1;
 				} catch (IOException e) {
 					if (getStatus() != Status.STARTED)
@@ -1271,6 +1280,7 @@ public class KVServer implements IKVServer {
 			healthScheduler = null;
 		} else {
 			logger.info(name + " is now a server again");
+			operatingState = operatingState.NORMAL;
 			// TODO: Stop watching for zookeeper children events
 			// Reschedule the healthcheck
 			scheduleSelfHealthCheck();
@@ -1297,6 +1307,8 @@ public class KVServer implements IKVServer {
 					// currently just using % CPU load this current JVM is taking, from 0.0-1.0
 					double load = osBean.getProcessCpuLoad();
 					logger.info("Server cpu load by process is: " + load);
+					int connectedClients = connections.activeCount();
+					logger.info("Active servers connected: " + connectedClients);
 					// if(load > UPPER_THRESHOLD){
 					// int currentReps = loadReplications.size()
 					// autoScaleUp(currentReps);xxxxxxxw
@@ -1305,18 +1317,36 @@ public class KVServer implements IKVServer {
 					// }
 
 					// CASE 1: Normal Storage Server -> Load balancer
-					if (!isLoadReplica() && !isLoadBalancer) {
-						if (clientCount > 1) {
-							setLoadBalancer(true);
+					if (isLoadReplica()) {
+						String data = null;
+						if (clientCount >= CRITICAL_THRESHOLD) {
+							if (operatingState != OperatingState.CRITICAL) {
+								data = NodeEvent.CRITICAL.name();
+								logger.info(name + " is now busy");
+							}
+							operatingState = OperatingState.CRITICAL;
+						} else if (clientCount < CRITICAL_THRESHOLD && clientCount > BELOW_THRESHOLD) {
+							if (operatingState != operatingState.NORMAL) {
+								data = NodeEvent.NORMAL.name();
+								logger.info(name + " is now normal");
+							}
+							operatingState = operatingState.NORMAL;
+						} else if (clientCount <= BELOW_THRESHOLD) {
+							if (operatingState != operatingState.BELOW) {
+								data = NodeEvent.BELOW.name();
+								logger.info(name + " is now below");
+							}
+							operatingState = operatingState.BELOW;
 						}
-					} else {
-						// TODO: zooooker event for help!
-						String data = NodeEvent.HELP.name();
-						String path = String.format("%s/%s/%s", _rootZnode, parentName, name);
-						byte[] dataBytes = data.getBytes();
-						_zooKeeper.setData(path, dataBytes,
-								_zooKeeper.exists(path, false).getVersion());
-						logger.info("This server is busy: " + name);
+
+						if (data != null) {
+							String path = String.format("%s/%s/%s", _rootZnode, parentName, name);
+							byte[] dataBytes = data.getBytes();
+							_zooKeeper.setData(path, dataBytes,
+									_zooKeeper.exists(path, false).getVersion());
+						}
+					} else if (!isLoadBalancer && clientCount > CRITICAL_THRESHOLD) {
+						setLoadBalancer(true);
 					}
 					logger.info("Server " + name + " is healthy!");
 				} catch (Exception e) {
@@ -1461,22 +1491,60 @@ public class KVServer implements IKVServer {
 		return err > 0 ? false : true;
 	}
 
-	public void handleSafeNode(String path) {
-		logger.info("Handling a SAFE node event: " + path);
-	}
+	public void handleReplicaStatusChange(NodeEvent status, String path) {
+		if (isLoadBalancer) {
+			int critical = 0;
+			int below = 0;
+			String name = path.substring(path.lastIndexOf('/') + 1);
+			for (int i = 0; i < replicaConnections.size(); ++i) {
+				ReplicaConnection server = replicaConnections.get(i);
+				OperatingState op_state = server.operatingState;
+				if (server.name.equals(name)) {
+					op_state = OperatingState.valueOf(status.name());
+					server.operatingState = op_state;
+					replicaConnections.set(i, server);
+					logger.info(String.format("%s is reporting a status of %s", name, op_state.name()));
+					break;
+				}
+				if (op_state == OperatingState.CRITICAL) {
+					critical++;
+				} else if (op_state == OperatingState.BELOW) {
+					below++;
+				}
+			}
 
-	public void handleHelpNode(String path) {
-		logger.info("Handling a HELP node event: " + path);
+			logger.info(String.format("Statuses: Critical=%s Below=%s, of %s servers", critical, below,
+					replicaConnections.size()));
+			if (replicaConnections.size() - critical - UP_FACTOR <= 0) {
+				logger.info("Scaling up");
+				autoScaleUp(1);
+			} else if (replicaConnections.size() - below - DOWN_FACTOR <= 0) {
+				logger.info("Scaling down");
+				autoScaleDown();
+			}
+		}
 	}
 
 	public void nodesChanged() {
 		try {
-			List<String> available_servers = _zooKeeper.getChildren(_availableServersZnode, false);
-			logger.info("Nodes now:");
-			logger.info(Arrays.toString(available_servers.toArray()));
-			// Subscribe to any new child
+			if (isLoadBalancer) {
+				for (int i = 0; i < replicaConnections.size(); i++) {
+					ReplicaConnection server = replicaConnections.get(i);
+					String path = String.format("%s/%s/%s", _rootZnode, parentName, server.name);
+					if (!server.added && _zooKeeper.exists(path, false) != null) {
+						// Subscribe to the newly created server
+						_zooKeeper.exists(path, true);
+						server.added = true;
+						replicaConnections.set(i, server);
+					}
+				}
+			}
+			// Subscribe back to the children event
+			String path = String.format("%s/%s", _rootZnode, parentName);
+			_zooKeeper.exists(path,
+					true);
 		} catch (Exception e) {
-			logger.error("Error while doing nodes changed");
+			logger.error("Error during nodes changed");
 			exceptionLogger(e);
 		}
 	}
