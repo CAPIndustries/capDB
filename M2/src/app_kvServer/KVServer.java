@@ -100,15 +100,11 @@ public class KVServer implements IKVServer {
 	OperatingSystemMXBean osBean = ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class);
 	private String replica1 = null;
 	private String replica2 = null;
-
-	// remove after we can get avail servers from zookeeper
-	private ArrayList<String> availableServers = new ArrayList<String>() {
-		{
-			add("server0;127.0.0.1;50019");
-			add("server1;127.0.0.1;50020");
-		}
-	};
 	public boolean isLoadBalancer = false;
+	public String parentName = "";
+	public ZooKeeper _zooKeeper = null;
+	public String _rootZnode;
+	public String _availableServersZnode;
 
 	// For testing purpose we test autoscale once we have 2 connections
 	private int clientCount = 0;
@@ -117,27 +113,16 @@ public class KVServer implements IKVServer {
 	// load replicas
 	public ArrayList<ReplicaConnection> replicaConnections = new ArrayList<ReplicaConnection>();
 
-	// load replica servers should not do any load balance - this flag disables
-	// health check stuff
-	public boolean isLoadReplica() {
-		logger.info("Server parentName: " + parentName + " name: " + name);
-		if (parentName.equals(name)) {
-			return false;
-		} else {
-			return true;
-		}
-	}
-
-	public String parentName = "";
-
-	public ZooKeeper _zooKeeper = null;
-	public String _rootZnode;
-	public static String _availableServersZnode;
-
 	// TODO: I think the cache does indeed need to have concurrent access
 	private LinkedHashMap<String, String> cache;
 	// true = write in progress (locked) and false = data is accessible
 	private ConcurrentHashMap<String, ConcurrentNode> clientRequests = new ConcurrentHashMap<String, ConcurrentNode>();
+
+	// load replica servers should not do any load balance - this flag disables
+	// health check stuff
+	public boolean isLoadReplica() {
+		return !parentName.equals(name);
+	}
 
 	public ConcurrentHashMap<String, ConcurrentNode> getClientRequests() {
 		return this.clientRequests;
@@ -1367,18 +1352,6 @@ public class KVServer implements IKVServer {
 			return null;
 		}
 		return ret;
-	}
-
-	// TODO: READ SUHAYB
-	private boolean removeFromAvailServers(ArrayList<String> replica) {
-		// write code here to remove servers from zookeeper
-		// for now removing from list
-		for (String server : availableServers) {
-			if (replica.contains(server)) {
-				availableServers.remove(server);
-			}
-		}
-		return true;
 	}
 
 	// TODO: READ SUHAYB

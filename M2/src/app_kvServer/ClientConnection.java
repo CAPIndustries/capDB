@@ -214,9 +214,10 @@ public class ClientConnection implements Runnable {
 							KVMessage putRes = validRequest(latestMsg.getKey(), true);
 							if (putRes == null) {
 								if (server.isLoadBalancer) {
+									int repSize = server.replicaConnections.size();
 									replicaIndex = (replicaIndex + 1) % repSize;
 									logger.info(String.format("Forwarding PUT request at replica %s of %s",
-											replicaIndex, server.replicaConnections.size()));
+											replicaIndex, repSize));
 									try {
 										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
 										store.connect();
@@ -238,9 +239,10 @@ public class ClientConnection implements Runnable {
 							KVMessage getRes = validRequest(latestMsg.getKey(), false);
 							if (getRes == null) {
 								if (server.isLoadBalancer) {
+									int repSize = server.replicaConnections.size();
 									replicaIndex = (replicaIndex + 1) % repSize;
 									logger.info(String.format("Forwarding PUT request at replica %s of %s",
-											replicaIndex, server.replicaConnections.size()));
+											replicaIndex, repSize));
 									try {
 										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
 										store.connect();
