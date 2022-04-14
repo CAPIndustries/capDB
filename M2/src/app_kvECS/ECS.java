@@ -296,7 +296,7 @@ public class ECS implements IECSClient {
                 if (node.getStatus() != Status.BOOT) {
                     continue;
                 }
-                String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
 
                 // Check if any move events have to take place, and issue them:
                 String[] movedData = moveData(node.getNodeName(), false);
@@ -519,7 +519,7 @@ public class ECS implements IECSClient {
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
-                String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
                 if (_zooKeeper.exists(path, false) != null) {
                     _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
                 }
@@ -609,7 +609,7 @@ public class ECS implements IECSClient {
     // Remove a specific server
     public boolean removeNode(String serverName) {
         logger.info("Removing " + serverName);
-        String path = String.format("%s/%s/%s", _rootZnode, serverName, serverName);
+        String path = String.format("%s/%s", _rootZnode, serverName);
         Map.Entry<String, ECSNode> entry = getEntry(serverName);
         if (entry != null) {
             String key = entry.getKey();
@@ -649,7 +649,7 @@ public class ECS implements IECSClient {
 
             String key = entry.getKey();
             ECSNode node = entry.getValue();
-            String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
+            String path = String.format("%s/%s", _rootZnode, node.getNodeName());
             try {
                 // Node was (possibly) added
                 // Must subscribe here since its the initial entry point of the node
@@ -805,10 +805,10 @@ public class ECS implements IECSClient {
             }
 
             if (delete) {
-                String znode = String.format("%s/%s/%s", _rootZnode, serverName, serverName);
+                String znode = String.format("%s/%s", _rootZnode, serverName);
                 return new String[] { znode, lower, successor.getKey(), successorVal.getNodeName() };
             } else {
-                String znode = String.format("%s/%s/%s", _rootZnode, successorVal.getNodeName(),
+                String znode = String.format("%s/%s", _rootZnode,
                         successorVal.getNodeName());
                 return new String[] { znode, lower, key, serverName };
             }
@@ -864,7 +864,7 @@ public class ECS implements IECSClient {
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
-                String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
                 logger.info("\tTo " + path);
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
             }
@@ -908,7 +908,7 @@ public class ECS implements IECSClient {
 
     private void startServer(String serverName) {
         try {
-            String path = String.format("%s/%s/%s", _rootZnode, serverName, serverName);
+            String path = String.format("%s/%s", _rootZnode, serverName);
             byte[] data = NodeEvent.START.name().getBytes();
             _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
         } catch (Exception e) {

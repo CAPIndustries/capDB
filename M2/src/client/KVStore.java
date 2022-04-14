@@ -95,6 +95,7 @@ public class KVStore implements KVCommInterface {
 			} else {
 				logger.error("Server closed on initial connection!");
 				displayMessage("Server unresponsive!", true);
+
 				if (this.test)
 					throw e;
 			}
@@ -143,6 +144,11 @@ public class KVStore implements KVCommInterface {
 	}
 
 	private void buildMetadata(String data) {
+		// Data is null because it connected to a replica. Nobody else (probably)
+		// broadcasts empty bod
+		if (data == null) {
+			return;
+		}
 		logger.info("Received metadata: " + data);
 		logger.info("Rebuilding ...");
 		String[] serverData = data.split(",");
@@ -223,6 +229,9 @@ public class KVStore implements KVCommInterface {
 					// Try it again:
 					return put(key, value);
 				}
+			} else if (res.getStatus() == StatusType.BALANCE) {
+				replica_connect(res.getValue());
+				return put(key, value);
 			}
 		}
 
@@ -259,6 +268,9 @@ public class KVStore implements KVCommInterface {
 				} else {
 					printError("Unable to connect to correct server!");
 				}
+			} else if (res.getStatus() == StatusType.BALANCE) {
+				replica_connect(res.getValue());
+				return get(key);
 			}
 		}
 
@@ -297,6 +309,26 @@ public class KVStore implements KVCommInterface {
 			connect();
 
 			reconnect_responsibly = false;
+			return true;
+		} catch (Exception e) {
+			logger.error("Error while trying to obtain correct server");
+			logger.error(e.getMessage());
+			exceptionLogger(e);
+
+			return false;
+		}
+	}
+
+	private boolean replica_connect(String replica_server) {
+		logger.info("Reconnecting to replica: " + replica_server);
+
+		try {
+			String[] server_info = replica_server.split(":");
+			this.address = server_info[0];
+			this.port = Integer.parseInt(server_info[1]);
+			disconnect();
+			connect();
+
 			return true;
 		} catch (Exception e) {
 			logger.error("Error while trying to obtain correct server");

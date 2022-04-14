@@ -32,7 +32,8 @@ public interface IKVMessage {
 		REMOVE_NODE((byte) 20),
 		LIST((byte) 21),
 		ACK((byte) 22),
-		NACK((byte) 23);
+		NACK((byte) 23),
+		BALANCE((byte) 24);
 
 		private final byte val;
 

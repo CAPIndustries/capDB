@@ -50,16 +50,34 @@ public class ZooKeeperWatcher implements Watcher {
                 }
                 try {
                     // Since notifications are a one time thing, we must reset the watcher
-                    String watchPath = String.format("%s/%s/%s", caller._rootZnode, caller.parentName, caller.name);
+                    String watchPath = String.format("%s/%s", caller._rootZnode, caller.parentName);
+                    if (caller.isLoadReplica()) {
+                        watchPath = String.format("%s/%s/%s", watchPath, caller.parentName, caller.name);
+                    }
+                    logger.info("Path:" + path);
                     logger.info("Resetting watchers on " + watchPath + " ...");
-                    caller._zooKeeper.getData(watchPath, this, null);
+                    caller._zooKeeper.exists(watchPath, true);
                 } catch (Exception e) {
                     logger.error("Error while resetting watcher!");
                     logger.error(e.getMessage());
                 }
                 break;
             case NodeDeleted:
-                caller.shutDown();
+                String serverName = path.substring(path.lastIndexOf('/') + 1);
+                if (caller.name.equals(serverName)) {
+
+                    caller.shutDown();
+                }
+                break;
+            case NodeCreated:
+                try {
+                    // Since notifications are a one time thing, we must reset the watcher
+                    logger.info("Path 2: " + path);
+                    caller._zooKeeper.exists(path, true);
+                } catch (Exception e) {
+                    logger.error("Error while resetting watcher when created!");
+                    logger.error(e.getMessage());
+                }
                 break;
             case NodeDataChanged:
                 try {

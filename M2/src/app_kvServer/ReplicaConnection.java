@@ -21,8 +21,8 @@ import app_kvServer.IKVServer.OperatingState;
 
 public class ReplicaConnection {
 
-    private String address;
-    private int port;
+    public String address;
+    public int port;
     private Socket clientSocket;
     private OutputStream output;
     private InputStream input;

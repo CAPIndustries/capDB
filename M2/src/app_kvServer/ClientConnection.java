@@ -84,9 +84,9 @@ public class ClientConnection implements Runnable {
 				res = new KVMessage(key,
 						"Server is not is currently blocked for write requests due to reallocation of data!",
 						StatusType.SERVER_WRITE_LOCK);
-			} else if (!server.isLoadReplica()) {
+			} else {
 				String responsible_server = getResponsibleServer(key);
-				if (!responsible_server.equals(server.getServerName())) {
+				if (!responsible_server.equals(server.parentName)) {
 					if (PUT_OP) {
 						logger.info("Incorrect server for PUT");
 						res = new KVMessage(key, "", StatusType.SERVER_NOT_RESPONSIBLE);
@@ -193,9 +193,8 @@ public class ClientConnection implements Runnable {
 		try {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
-			if (!server.isLoadBalancer) {
-				sendMetadata();
-			} else {
+			sendMetadata();
+			if (server.isLoadBalancer) {
 				if (server.replicaConnections.size() != 0) {
 					replicaIndex = new Random().nextInt(server.replicaConnections.size());
 				} else {
@@ -218,16 +217,9 @@ public class ClientConnection implements Runnable {
 									replicaIndex = (replicaIndex + 1) % repSize;
 									logger.info(String.format("Forwarding PUT request at replica %s of %s",
 											replicaIndex, repSize));
-									try {
-										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
-										store.connect();
-										// TODO: skip if current status is BUSY
-										putRes = (KVMessage) store.put(latestMsg.getKey(), latestMsg.getValue());
-										logger.info("PUT forwarding response status: " + putRes.getStatus());
-									} catch (Exception e) {
-										logger.error("PUT forwarding failed!");
-										exceptionLogger(e);
-									}
+									ReplicaConnection store = server.replicaConnections.get(replicaIndex);
+									String server_info = String.format("%s:%s", store.address, store.port);
+									putRes = new KVMessage(latestMsg.getKey(), server_info, StatusType.BALANCE);
 								} else {
 									putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
 								}
@@ -241,18 +233,11 @@ public class ClientConnection implements Runnable {
 								if (server.isLoadBalancer) {
 									int repSize = server.replicaConnections.size();
 									replicaIndex = (replicaIndex + 1) % repSize;
-									logger.info(String.format("Forwarding PUT request at replica %s of %s",
+									logger.info(String.format("Forwarding GET request at replica %s of %s",
 											replicaIndex, repSize));
-									try {
-										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
-										store.connect();
-										// TODO: SKIP IF BUSY
-										getRes = (KVMessage) store.get(latestMsg.getKey());
-										logger.info("GET forwarding response status: " + getRes.getStatus());
-									} catch (Exception e) {
-										logger.error("GET forwarding failed!");
-										exceptionLogger(e);
-									}
+									ReplicaConnection store = server.replicaConnections.get(replicaIndex);
+									String server_info = String.format("%s:%s", store.address, store.port);
+									getRes = new KVMessage(latestMsg.getKey(), server_info, StatusType.BALANCE);
 								} else {
 									getRes = getKV(latestMsg.getKey());
 								}

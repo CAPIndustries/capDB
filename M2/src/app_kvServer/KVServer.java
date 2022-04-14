@@ -44,6 +44,7 @@ import java.math.BigInteger;
 import org.apache.log4j.Level;
 import org.apache.log4j.Logger;
 
+import org.apache.zookeeper.AddWatchMode;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.CreateMode;
@@ -114,9 +115,6 @@ public class KVServer implements IKVServer {
 	public String _availableServersZnode;
 	private ThreadGroup connections = new ThreadGroup("connections");
 
-	// For testing purpose we test autoscale once we have 2 connections
-	private int clientCount = 0;
-
 	// List of kv stores - using since they are easier to work for now to connect to
 	// load replicas
 	public ArrayList<ReplicaConnection> replicaConnections = new ArrayList<ReplicaConnection>();
@@ -154,7 +152,7 @@ public class KVServer implements IKVServer {
 	 * 
 	 */
 	public KVServer(final int cacheSize, CacheStrategy strategy, String name, int port,
-			int zkPort, String rootNode, String parentName) {
+			int zkPort, String rootNode, String parentName, String metadata) {
 		try {
 			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
 			logger = new LogSetup("logs", name + "_" + fmt.format(new Date()), Level.ALL, true).getLogger();
@@ -180,6 +178,9 @@ public class KVServer implements IKVServer {
 		}
 		this._rootZnode = rootNode;
 		this._availableServersZnode = String.format("%s/%s", rootNode, "available");
+		if (metadata != null) {
+			initKVServer(metadata);
+		}
 
 		if (strategy == CacheStrategy.LRU) {
 			cache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true) {
@@ -538,6 +539,7 @@ public class KVServer implements IKVServer {
 
 	@Override
 	public void run() {
+		scheduleSelfHealthCheck();
 		if (_zooKeeper == null) {
 			logger.error("ZooKeeper node not initialized");
 			return;
@@ -559,7 +561,6 @@ public class KVServer implements IKVServer {
 					new Thread(connections, connection, t_name).start();
 
 					logger.info("Connected to " + t_name);
-					clientCount += 1;
 				} catch (IOException e) {
 					if (getStatus() != Status.STARTED)
 						return;
@@ -642,7 +643,7 @@ public class KVServer implements IKVServer {
 	 */
 	public static void main(String[] args) {
 		try {
-			if (args.length != 5) {
+			if (args.length < 5) {
 				System.out.println("Error! Invalid number of arguments!");
 				System.out.println(
 						"Usage: Server <name> <port> <ZooKeeper Port> <ZooKeeper Root Node> <parentName>!");
@@ -655,9 +656,13 @@ public class KVServer implements IKVServer {
 				int zkPort = Integer.parseInt(args[2]);
 				String rootZnode = args[3];
 				String parentName = args[4];
+				String metadata = null;
+				if (args.length == 6) {
+					metadata = args[5];
+				}
 
 				new KVServer(START_CACHE_SIZE, START_CACHE_STRATEGY, name, port, zkPort, rootZnode,
-						parentName);
+						parentName, metadata);
 			}
 		} catch (NumberFormatException nfe) {
 			System.out.println("Error! Invalid argument <port>! Not a number!");
@@ -716,22 +721,25 @@ public class KVServer implements IKVServer {
 			_zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, zkWatcher);
 			byte[] data = NodeEvent.BOOT.name().getBytes();
 
-			String path = String.format("%s/%s", _rootZnode, parentName);
 			ArrayList<Op> opList = new ArrayList<Op>();
 			if (!this.isLoadReplica()) {
-				logger.info("This is the first node");
+				logger.info("First node");
+				String path = String.format("%s/%s", _rootZnode, name);
+				_zooKeeper.addWatch(path,
+						AddWatchMode.PERSISTENT);
 				opList.add(Op.create(path, data,
 						ZooDefs.Ids.OPEN_ACL_UNSAFE,
 						CreateMode.PERSISTENT));
+			} else {
+				String path = String.format("%s/%s/%s", _rootZnode, parentName, name);
+				_zooKeeper.addWatch(path,
+						AddWatchMode.PERSISTENT);
+				opList.add(Op.create(path, data,
+						ZooDefs.Ids.OPEN_ACL_UNSAFE,
+						CreateMode.EPHEMERAL));
 			}
-			path = String.format("%s/%s", path, name);
-			opList.add(Op.create(path, data,
-					ZooDefs.Ids.OPEN_ACL_UNSAFE,
-					CreateMode.EPHEMERAL));
 			_zooKeeper.multi(opList);
 
-			_zooKeeper.getData(path,
-					zkWatcher, null);
 			return true;
 		} catch (Exception e) {
 			logger.error("Error encountered while creating ZooKeeper node!");
@@ -1150,7 +1158,6 @@ public class KVServer implements IKVServer {
 			// TODO: SUHAYB CHECK THIS
 			updateReplicas();
 			scheduleReconciliation();
-			scheduleSelfHealthCheck();
 		} else {
 			update(data);
 		}
@@ -1305,10 +1312,10 @@ public class KVServer implements IKVServer {
 					// may need to use client connectsions
 					// amount of requests -> periodcially calculating throughput
 					// currently just using % CPU load this current JVM is taking, from 0.0-1.0
+					int clientCount = connections.activeCount();
 					double load = osBean.getProcessCpuLoad();
 					logger.info("Server cpu load by process is: " + load);
-					int connectedClients = connections.activeCount();
-					logger.info("Active servers connected: " + connectedClients);
+					logger.info("Active servers connected: " + clientCount);
 					// if(load > UPPER_THRESHOLD){
 					// int currentReps = loadReplications.size()
 					// autoScaleUp(currentReps);xxxxxxxw
@@ -1318,6 +1325,7 @@ public class KVServer implements IKVServer {
 
 					// CASE 1: Normal Storage Server -> Load balancer
 					if (isLoadReplica()) {
+
 						String data = null;
 						if (clientCount >= CRITICAL_THRESHOLD) {
 							if (operatingState != OperatingState.CRITICAL) {
@@ -1331,7 +1339,7 @@ public class KVServer implements IKVServer {
 								logger.info(name + " is now normal");
 							}
 							operatingState = operatingState.NORMAL;
-						} else if (clientCount <= BELOW_THRESHOLD) {
+						} else if (clientCount <= BELOW_THRESHOLD && clientCount > 1) {
 							if (operatingState != operatingState.BELOW) {
 								data = NodeEvent.BELOW.name();
 								logger.info(name + " is now below");
@@ -1450,7 +1458,7 @@ public class KVServer implements IKVServer {
 			String[] envp = { "host=" + host, "name=" + childName, "port=" + port,
 					"zkPort=" + this.zkPort, "zkRoot=" +
 							this._rootZnode,
-					"parentName=" + this.name
+					"parentName=" + this.name, "metadata=" + getMetadataRaw()
 			};
 			try {
 				final Process proc = run.exec(script, envp);
@@ -1500,6 +1508,19 @@ public class KVServer implements IKVServer {
 				ReplicaConnection server = replicaConnections.get(i);
 				OperatingState op_state = server.operatingState;
 				if (server.name.equals(name)) {
+					switch (status) {
+						case CRITICAL:
+							op_state = OperatingState.CRITICAL;
+							critical++;
+							break;
+						case NORMAL:
+							op_state = OperatingState.NORMAL;
+							break;
+						case BELOW:
+							op_state = OperatingState.BELOW;
+							below++;
+							break;
+					}
 					op_state = OperatingState.valueOf(status.name());
 					server.operatingState = op_state;
 					replicaConnections.set(i, server);
@@ -1513,7 +1534,7 @@ public class KVServer implements IKVServer {
 				}
 			}
 
-			logger.info(String.format("Statuses: Critical=%s Below=%s, of %s servers", critical, below,
+			logger.info(String.format("Statuses: Critical=%s Below=%s of %s servers", critical, below,
 					replicaConnections.size()));
 			if (replicaConnections.size() - critical - UP_FACTOR <= 0) {
 				logger.info("Scaling up");
@@ -1527,12 +1548,15 @@ public class KVServer implements IKVServer {
 
 	public void nodesChanged() {
 		try {
+			logger.info("Triggered");
 			if (isLoadBalancer) {
 				for (int i = 0; i < replicaConnections.size(); i++) {
 					ReplicaConnection server = replicaConnections.get(i);
 					String path = String.format("%s/%s/%s", _rootZnode, parentName, server.name);
+					logger.info("Checking for:" + path);
 					if (!server.added && _zooKeeper.exists(path, false) != null) {
 						// Subscribe to the newly created server
+						logger.info("Subscribing to:" + path);
 						_zooKeeper.exists(path, true);
 						server.added = true;
 						replicaConnections.set(i, server);
@@ -1540,7 +1564,7 @@ public class KVServer implements IKVServer {
 				}
 			}
 			// Subscribe back to the children event
-			String path = String.format("%s/%s", _rootZnode, parentName);
+			String path = String.format("%s/%s", _rootZnode, name);
 			_zooKeeper.exists(path,
 					true);
 		} catch (Exception e) {
