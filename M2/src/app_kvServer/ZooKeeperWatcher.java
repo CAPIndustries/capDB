@@ -16,12 +16,12 @@ import logger.LogSetup;
 
 public class ZooKeeperWatcher implements Watcher {
 
-    private static Logger logger = Logger.getRootLogger();
-
     private KVServer caller = null;
+    private Logger logger;
 
     public ZooKeeperWatcher(KVServer caller) {
         this.caller = caller;
+        logger = caller.logger;
     }
 
     @Override

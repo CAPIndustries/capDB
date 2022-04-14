@@ -146,7 +146,7 @@ public class PerformanceBasicTest extends TestCase {
 					int test = 50019;
 					int index = (int) Thread.currentThread().getId() % 10;
 					logger.info("Thread " + "" + (int) Thread.currentThread().getId() + " - " + index);
-					KVStore kv = new KVStore("localhost", test + index);
+					KVStore kv = new KVStore("localhost", test + index, logger);
 					Logger logger = Logger.getRootLogger();
 					kv.connect();
 
@@ -188,7 +188,6 @@ public class PerformanceBasicTest extends TestCase {
 		}
 		server.shutdown();
 		logger.info("DONE PERF TEST !!!!!");
-
 
 	}
 

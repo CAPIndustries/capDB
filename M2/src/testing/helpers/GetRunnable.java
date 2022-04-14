@@ -27,7 +27,7 @@ public class GetRunnable implements IResponseRunnable {
         try {
             Logger logger = Logger.getRootLogger();
             logger.info("======Thread! START======");
-            KVStore kv = new KVStore("localhost", port);
+            KVStore kv = new KVStore("localhost", port, logger);
             kv.connect();
             this.id = kv.output_port;
             IKVMessage response = kv.get(key);

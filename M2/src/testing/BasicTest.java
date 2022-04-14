@@ -24,8 +24,8 @@ public class BasicTest extends TestCase {
 	public static int port;
 
 	public void setUp() {
-		if(server.testGetServerCount() == 0){
-			server.addNode("any",20);
+		if (server.testGetServerCount() == 0) {
+			server.addNode("any", 20);
 			try {
 				logger.info("sleeping");
 				Thread.currentThread().sleep(2000);
@@ -35,7 +35,7 @@ public class BasicTest extends TestCase {
 				logger.info("error sleep: " + e.getMessage());
 			}
 		}
-		kvClient = new KVStore("localhost", port);
+		kvClient = new KVStore("localhost", port, logger);
 		try {
 			kvClient.connect();
 		} catch (Exception e) {
@@ -53,7 +53,7 @@ public class BasicTest extends TestCase {
 
 			logger.info("error sleep: " + e.getMessage());
 		}
-		
+
 	}
 
 	public void testPut() {

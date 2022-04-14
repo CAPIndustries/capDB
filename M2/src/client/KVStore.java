@@ -45,7 +45,7 @@ public class KVStore implements KVCommInterface {
 	private static final char RETURN = 0x0D;
 
 	public volatile static boolean test = false;
-	private static Logger logger = Logger.getRootLogger();
+	private Logger logger;
 	private boolean running;
 	private String address;
 	private int port;
@@ -66,9 +66,10 @@ public class KVStore implements KVCommInterface {
 	 * @param address the address of the KVServer
 	 * @param port    the port of the KVServer
 	 */
-	public KVStore(String address, int port) {
+	public KVStore(String address, int port, Logger logger) {
 		this.address = address;
 		this.port = port;
+		this.logger = logger;
 	}
 
 	@Override
@@ -547,7 +548,7 @@ public class KVStore implements KVCommInterface {
 		}
 	}
 
-	private static void exceptionLogger(Exception e) {
+	private void exceptionLogger(Exception e) {
 		StringWriter sw = new StringWriter();
 		PrintWriter pw = new PrintWriter(sw);
 		e.printStackTrace(pw);

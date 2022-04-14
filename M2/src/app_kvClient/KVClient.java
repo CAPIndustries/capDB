@@ -39,7 +39,7 @@ public class KVClient implements IKVClient {
 			store.disconnect();
 			store = null;
 		}
-		store = new KVStore(hostname, port);
+		store = new KVStore(hostname, port, logger);
 		store.connect();
 	}
 

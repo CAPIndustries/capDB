@@ -14,7 +14,7 @@ public class ConnectionTest extends TestCase {
 
 	public static int port;
 	private KVStore kvClient;
-	public static ECS server; 
+	public static ECS server;
 	private static Logger logger = Logger.getRootLogger();
 
 	public void setUp() {
@@ -24,15 +24,15 @@ public class ConnectionTest extends TestCase {
 		// server.addNode("any",20);
 		// logger.debug("Hello");
 		// try {
-		// 	logger.info("sleeping");
-		// 	Thread.currentThread().sleep(2000);
-		// 	server.start();
+		// logger.info("sleeping");
+		// Thread.currentThread().sleep(2000);
+		// server.start();
 		// } catch (Exception e) {
 
-		// 	logger.info("error sleep: " + e.getMessage());
+		// logger.info("error sleep: " + e.getMessage());
 		// }
 		logger.info("Starting...");
-		kvClient = new KVStore("localhost", port);
+		kvClient = new KVStore("localhost", port, logger);
 		try {
 			kvClient.connect();
 			logger.info("done connection...");
@@ -45,10 +45,10 @@ public class ConnectionTest extends TestCase {
 		kvClient.disconnect();
 		// Boolean val = server.shutdown();
 		// try {
-		// 	logger.info("sleeping");
-		// 	Thread.currentThread().sleep(500);
+		// logger.info("sleeping");
+		// Thread.currentThread().sleep(500);
 		// } catch (Exception e) {
-		// 	logger.info("error sleep: " + e.getMessage());
+		// logger.info("error sleep: " + e.getMessage());
 		// }
 		// Boolean val = server.shutdown();
 		// logger.info("ConnectTest - ECS SHUTDOWN STATUS: " + val);
@@ -57,7 +57,7 @@ public class ConnectionTest extends TestCase {
 	public void testConnectionSuccess() {
 		Exception ex = null;
 
-		KVStore kvClient = new KVStore("localhost", port);
+		KVStore kvClient = new KVStore("localhost", port, logger);
 		try {
 			logger.info("Inside ConnectTest: start test");
 			kvClient.connect();
@@ -69,10 +69,9 @@ public class ConnectionTest extends TestCase {
 		assertNull(ex);
 	}
 
-
 	public void testUnknownHost() {
 		Exception ex = null;
-		KVStore kvClient = new KVStore("unknown", port);
+		KVStore kvClient = new KVStore("unknown", port, logger);
 		kvClient.test = true;
 
 		try {
@@ -87,7 +86,7 @@ public class ConnectionTest extends TestCase {
 
 	public void testIllegalPort() {
 		Exception ex = null;
-		KVStore kvClient = new KVStore("localhost", 123456789);
+		KVStore kvClient = new KVStore("localhost", 123456789, logger);
 		kvClient.test = true;
 
 		try {

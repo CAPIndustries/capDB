@@ -23,7 +23,7 @@ public class ConcurrencyBasicTest extends TestCase {
 	public static int port;
 
 	public void setUp() {
-		kvClient = new KVStore("localhost", port);
+		kvClient = new KVStore("localhost", port, logger);
 		try {
 			server.clearStorage();
 			kvClient.connect();
@@ -68,7 +68,8 @@ public class ConcurrencyBasicTest extends TestCase {
 		}
 
 		while (!server.inStorage(KEY) ||
-				server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS);
+				server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS)
+			;
 
 		server.wait = false;
 
@@ -93,7 +94,7 @@ public class ConcurrencyBasicTest extends TestCase {
 
 		final String KEY_PREFIX = "key_";
 		final String VALUE = "foo";
-		
+
 		server.wait = true;
 
 		logger.info("======Thread! Spawning======");
@@ -142,7 +143,8 @@ public class ConcurrencyBasicTest extends TestCase {
 			threads[i].start();
 		}
 
-		while (!server.inQueue(KEY));
+		while (!server.inQueue(KEY))
+			;
 
 		logger.info("Sleeping for a bit");
 		try {
@@ -151,7 +153,8 @@ public class ConcurrencyBasicTest extends TestCase {
 			fail("InterruptedException thrown!");
 		}
 
-		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS);
+		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS)
+			;
 
 		int keyCreator = server.getClientRequests().get(KEY).peek()[0];
 
@@ -162,7 +165,7 @@ public class ConcurrencyBasicTest extends TestCase {
 			for (int i = 0; i < NUM_CONNECTIONS; ++i) {
 				threads[i].join();
 				IKVMessage tResponse = values[i].getResponse();
-				
+
 				if (values[i].getID() == keyCreator) {
 					assertTrue(tResponse.getStatus() == StatusType.PUT_SUCCESS);
 				} else {

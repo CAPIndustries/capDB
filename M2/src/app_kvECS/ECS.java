@@ -21,6 +21,7 @@ import java.util.TreeMap;
 import java.util.Iterator;
 import java.util.HashMap;
 import java.util.LinkedList;
+import java.util.Random;
 
 import java.text.SimpleDateFormat;
 
@@ -109,7 +110,8 @@ public class ECS implements IECSClient {
             if (available_servers.size() == 0) {
                 return "";
             }
-            String server = available_servers.get(0);
+            int index = new Random().nextInt(available_servers.size());
+            String server = available_servers.get(index);
             String path = String.format("%s/%s", _availableServersZnode, server);
             _zooKeeper.delete(path, _zooKeeper.exists(path,
                     false).getVersion());
@@ -265,7 +267,6 @@ public class ECS implements IECSClient {
         }
 
         myReader.close();
-        Collections.shuffle(servers);
 
         opList.add(Op.create(_availableServersZnode, data,
                 ZooDefs.Ids.OPEN_ACL_UNSAFE,

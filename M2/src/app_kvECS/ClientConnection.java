@@ -28,7 +28,7 @@ import exceptions.InvalidMessageException;
  */
 public class ClientConnection implements Runnable {
 
-	private static Logger logger = Logger.getRootLogger();
+	private Logger logger;
 
 	private boolean isOpen;
 	private static final int BUFFER_SIZE = 1024;
@@ -50,6 +50,7 @@ public class ClientConnection implements Runnable {
 		this.clientSocket = clientSocket;
 		this.server = server;
 		this.isOpen = true;
+		this.logger = this.server.logger;
 	}
 
 	/**

@@ -82,7 +82,7 @@ public class KVServer implements IKVServer {
 	public volatile boolean test = false;
 	public volatile boolean wait = false;
 	ScheduledExecutorService healthScheduler;
-	private Logger logger;
+	public Logger logger;
 	private int port;
 	private int cacheSize;
 	public String name;
@@ -1270,6 +1270,7 @@ public class KVServer implements IKVServer {
 	private void setLoadBalancer(boolean balancer) {
 		isLoadBalancer = balancer;
 		if (balancer) {
+			logger.info(name + " is now a load balancer");
 			autoScaleUp(INITIAL_SCALEUP);
 			// Watch for children events
 			String path = String.format("%s/%s", _rootZnode, name);
@@ -1284,6 +1285,7 @@ public class KVServer implements IKVServer {
 			healthScheduler.shutdownNow();
 			healthScheduler = null;
 		} else {
+			logger.info(name + " is now a server again");
 			// TODO: Stop watching for zookeeper children events
 			// Reschedule the healthcheck
 			scheduleSelfHealthCheck();
@@ -1352,7 +1354,7 @@ public class KVServer implements IKVServer {
 			for (int i = 0; i < count; ++i) {
 				String val = avail.get(i);
 				String path = String.format("%s/%s", _availableServersZnode, val);
-				opList.add(Op.delete(_availableServersZnode, _zooKeeper.exists(_availableServersZnode,
+				opList.add(Op.delete(path, _zooKeeper.exists(path,
 						false).getVersion()));
 				ret.add(val);
 			}
@@ -1430,11 +1432,12 @@ public class KVServer implements IKVServer {
 	private boolean startReplicaConnections(ArrayList<String> replicas) {
 		int err = 0;
 		// from replica list - start server (copied from ECSNODE)
-		for (String Item : replicas) {
-			logger.info("Intializing server ... \nRunning script ...");
+		for (String replica : replicas) {
+			logger.info("Starting replica: " + replica);
+			logger.info("Running script ...");
 			String script = "script.sh";
 
-			String[] serverInfo = Item.split("_");
+			String[] serverInfo = replica.split("_");
 			String childName = serverInfo[0];
 			String host = serverInfo[1];
 			String port = serverInfo[2];

@@ -33,7 +33,7 @@ public class PutRunnable implements IResponseRunnable {
         try {
             Logger logger = Logger.getRootLogger();
             logger.info("======Thread! START======");
-            KVStore kv = new KVStore("localhost", port);
+            KVStore kv = new KVStore("localhost", port, logger);
             kv.connect();
             this.id = kv.output_port;
             String put_key = this.prefix_key ? this.key + this.id : this.key;

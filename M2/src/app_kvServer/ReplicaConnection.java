@@ -40,7 +40,7 @@ public class ReplicaConnection {
     }
 
     public void connect() throws UnknownHostException, IOException {
-        logger.info("Trying to connect ...");
+        logger.info("Trying to connect to: " + this);
 
         try {
             clientSocket = new Socket(address, port);
@@ -48,7 +48,8 @@ public class ReplicaConnection {
             output = clientSocket.getOutputStream();
             input = clientSocket.getInputStream();
             output_port = clientSocket.getLocalPort();
-
+            // Skip the first metadata response (essentially clearing the buffer):
+            receiveMessage(false);
         } catch (Exception e) {
             exceptionLogger(e);
         }
@@ -59,18 +60,10 @@ public class ReplicaConnection {
 
     public IKVMessage put(String key, String value) throws Exception {
         KVMessage msg = new KVMessage(key, value, StatusType.PUT);
-        long sentTime = System.currentTimeMillis();
-        long expectedTime = sentTime + RESPONSE_TIME;
         sendMessage(msg, false);
 
-        KVMessage res = null;
-
-        do {
-            res = receiveMessage(false);
-        } while (res.getStatus() == StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
-
-        logger.debug("build new res put");
-        if (res == null || res.getStatus() == StatusType.HEARTBEAT) {
+        KVMessage res = receiveMessage(false);
+        if (res == null) {
             res = new KVMessage(key, "Timed out after " + RESPONSE_TIME / 1000 + " seconds", StatusType.PUT_ERROR);
         }
 
@@ -79,16 +72,9 @@ public class ReplicaConnection {
 
     public IKVMessage get(String key) throws Exception {
         KVMessage msg = new KVMessage(key, null, StatusType.GET);
-        long sentTime = System.currentTimeMillis();
-        long expectedTime = sentTime + RESPONSE_TIME;
         sendMessage(msg, false);
 
-        KVMessage res = null;
-
-        do {
-            res = receiveMessage(false);
-        } while (res.getStatus() == StatusType.HEARTBEAT && System.currentTimeMillis() < expectedTime);
-
+        KVMessage res = receiveMessage(false);
         if (res == null) {
             res = new KVMessage(key, "Timed out after " + RESPONSE_TIME / 1000 + " seconds", StatusType.GET_ERROR);
         }
@@ -97,7 +83,6 @@ public class ReplicaConnection {
     }
 
     public synchronized void sendMessage(KVMessage msg, boolean heartbeat) throws IOException {
-
         byte[] msgBytes = msg.getMsgBytes();
         output.write(msgBytes, 0, msgBytes.length);
         output.flush();
@@ -105,7 +90,6 @@ public class ReplicaConnection {
 
     public synchronized KVMessage receiveMessage(boolean heartbeat)
             throws IOException, InvalidMessageException, Exception {
-
         int index = 0;
         byte[] msgBytes = null, tmp = null;
         byte[] bufferBytes = new byte[BUFFER_SIZE];
@@ -186,5 +170,4 @@ public class ReplicaConnection {
             logger.error("Unable to close connection!", ioe);
         }
     }
-
 }

@@ -21,14 +21,14 @@ import exceptions.InvalidMessageException;
 public class RequestTest extends TestCase {
 
 	private final String STORAGE_DIRECTORY = "storage/";
-	
+
 	private KVStore kvClient;
 	private static Logger logger = Logger.getRootLogger();
 	public static KVServer server;
 	public static int port;
 
 	public void setUp() {
-		kvClient = new KVStore("localhost", 50000);
+		kvClient = new KVStore("localhost", 50000, logger);
 		try {
 			server.clearStorage();
 			kvClient.connect();
@@ -44,7 +44,8 @@ public class RequestTest extends TestCase {
 
 	public void testBadRequest() {
 		assertTrue(true);
-		if (true) return;
+		if (true)
+			return;
 
 		logger.info("====TEST BAD REQUEST====");
 		final String KEY = "foo";
@@ -52,7 +53,7 @@ public class RequestTest extends TestCase {
 
 		KVMessage response = null;
 		Exception ex = null;
-		
+
 		try {
 			KVMessage message = new KVMessage(KEY, VALUE, StatusType.GET_SUCCESS);
 			kvClient.sendMessage(message, false);
@@ -68,7 +69,8 @@ public class RequestTest extends TestCase {
 
 	public void testKeyLength() {
 		assertTrue(true);
-		if (true) return;
+		if (true)
+			return;
 
 		logger.info("====TEST KEY Length====");
 		final String KEY = "Our whole universe was in a hot, dense state";
@@ -82,7 +84,7 @@ public class RequestTest extends TestCase {
 		} catch (InvalidMessageException e) {
 			ex = e;
 		}
-		
+
 		assertNotNull(ex);
 	}
 
@@ -101,7 +103,7 @@ public class RequestTest extends TestCase {
 				while (scanner.hasNextLine()) {
 					fileContents.append(scanner.nextLine() + System.lineSeparator());
 				}
-				
+
 				value = fileContents.toString().trim();
 			} catch (Error e) {
 				err = e;
@@ -122,7 +124,7 @@ public class RequestTest extends TestCase {
 		} catch (InvalidMessageException e) {
 			ex = e;
 		}
-		
+
 		assertNotNull(ex);
 	}
 }

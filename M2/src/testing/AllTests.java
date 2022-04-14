@@ -60,7 +60,7 @@ public class AllTests {
 					ECSServer.start();
 					logger.debug("OH noo");
 					// need KVStore to call the right server
-					KVStore kvClient = new KVStore("localhost", serverPort);
+					KVStore kvClient = new KVStore("localhost", serverPort, logger);
 					try {
 						logger.debug("Hello");
 						kvClient.connect();

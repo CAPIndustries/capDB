@@ -62,7 +62,7 @@ public class ECSNode implements IECSNode {
         String[] envp = { "host=" + this.host, "name=" + this.name, "port=" + this.port,
                 "zkPort=" + this.zkPort, "parentName=" + this.name, "zkRoot=" + this.zkRoot
         };
-        logger.info(Arrays.toString(envp));
+        logger.info("Environment state:" + Arrays.toString(envp));
 
         try {
             proc = run.exec(script, envp);

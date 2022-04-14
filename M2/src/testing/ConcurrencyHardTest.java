@@ -34,7 +34,7 @@ public class ConcurrencyHardTest extends TestCase {
 	public static int port;
 
 	public void setUp() {
-		kvClient = new KVStore("localhost", port);
+		kvClient = new KVStore("localhost", port, logger);
 		try {
 			server.clearStorage();
 			kvClient.connect();
@@ -47,7 +47,7 @@ public class ConcurrencyHardTest extends TestCase {
 		kvClient.disconnect();
 		server.clearStorage();
 	}
-	
+
 	public void testConcurrentDelete() {
 		final int NUM_CONNECTIONS = 5;
 		logger.info("====TEST " + NUM_CONNECTIONS + " concurrent DELETES====");
@@ -68,7 +68,7 @@ public class ConcurrencyHardTest extends TestCase {
 		assertTrue(response.getStatus() == StatusType.PUT_SUCCESS);
 		assertTrue(response.getKey().equals(KEY));
 		assertTrue(response.getValue().equals(value));
-		
+
 		// Start the delete
 		value = "null";
 		server.wait = true;
@@ -82,7 +82,8 @@ public class ConcurrencyHardTest extends TestCase {
 			threads[i].start();
 		}
 
-		while (!server.inQueue(KEY));
+		while (!server.inQueue(KEY))
+			;
 
 		logger.info("Sleeping for a bit");
 		try {
@@ -91,7 +92,8 @@ public class ConcurrencyHardTest extends TestCase {
 			fail("InterruptedException thrown!");
 		}
 
-		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS);
+		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS)
+			;
 
 		int deleterID = server.getClientRequests().get(KEY).peek()[0];
 		logger.info("Deletor:" + deleterID);
@@ -141,7 +143,7 @@ public class ConcurrencyHardTest extends TestCase {
 
 		IKVMessage response = null;
 		Exception ex = null;
-		
+
 		// Construct the test runnables
 		// Test: WRRRDR
 		int i = 0;
@@ -153,7 +155,7 @@ public class ConcurrencyHardTest extends TestCase {
 		values[i++] = new PutRunnable(port, KEY, false, "null", false);
 		values[i++] = new GetRunnable(port, KEY);
 		assertTrue(i == NUM_CONNECTIONS);
-		
+
 		i = 0;
 		IKVMessage[] expected = new KVMessage[NUM_CONNECTIONS];
 		try {
@@ -168,7 +170,7 @@ public class ConcurrencyHardTest extends TestCase {
 		}
 		assertNull(ex);
 		assertTrue(i == NUM_CONNECTIONS);
-		
+
 		server.wait = true;
 		// Start the threads
 		logger.info("======Thread! Spawning======");
@@ -178,9 +180,11 @@ public class ConcurrencyHardTest extends TestCase {
 			threads[i].start();
 		}
 
-		while (!server.inQueue(KEY));
-		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS);
-		
+		while (!server.inQueue(KEY))
+			;
+		while (server.getClientRequests().get(KEY).len() != NUM_CONNECTIONS)
+			;
+
 		logger.info("Fixing the Queue to:" + TEST_CASE);
 
 		ConcurrentNode node = server.getClientRequests().get(KEY);
@@ -198,7 +202,7 @@ public class ConcurrencyHardTest extends TestCase {
 		}
 		node.setQ(newQ);
 		logger.info("Debug queue after: " + node.printQ());
-		
+
 		server.setClientRequest(KEY, node);
 		logger.info("Queue after: " + server.getClientRequests().get(KEY).printQ());
 

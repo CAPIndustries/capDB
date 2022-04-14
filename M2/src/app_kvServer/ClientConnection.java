@@ -9,6 +9,7 @@ import java.io.File;
 
 import java.util.Scanner;
 import java.util.Map;
+import java.util.Random;
 
 import java.net.Socket;
 
@@ -38,7 +39,7 @@ import exceptions.InvalidMessageException;
  */
 public class ClientConnection implements Runnable {
 
-	private static Logger logger = Logger.getRootLogger();
+	private Logger logger;
 
 	private boolean isOpen;
 	private static final int BUFFER_SIZE = 1024;
@@ -51,6 +52,7 @@ public class ClientConnection implements Runnable {
 	private OutputStream output;
 	KVServer server;
 	private int metadataVersion;
+	private int replicaIndex;
 
 	/**
 	 * Constructs a new CientConnection object for a given TCP socket.
@@ -62,6 +64,7 @@ public class ClientConnection implements Runnable {
 		this.server = server;
 		this.metadataVersion = server.getMetadataVersion();
 		this.isOpen = true;
+		this.logger = this.server.logger;
 	}
 
 	// A request is valid only if:
@@ -185,12 +188,20 @@ public class ClientConnection implements Runnable {
 	 */
 	public void run() {
 		Long sum = (long) 0;
-		int replicaIndex = 0;
+		replicaIndex = 0;
+
 		try {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
-			if (!server.isLoadReplica())
+			if (!server.isLoadBalancer) {
 				sendMetadata();
+			} else {
+				if (server.replicaConnections.size() != 0) {
+					replicaIndex = new Random().nextInt(server.replicaConnections.size());
+				} else {
+					replicaIndex = 0;
+				}
+			}
 			while (isOpen) {
 				try {
 					Long start = System.nanoTime();
@@ -201,30 +212,19 @@ public class ClientConnection implements Runnable {
 					switch (latestMsg.getStatus()) {
 						case PUT:
 							KVMessage putRes = validRequest(latestMsg.getKey(), true);
-							logger.info("CASE: PUT " + latestMsg.getStatus());
 							if (putRes == null) {
-								logger.info("CASE: PUT - PutRes is null" + latestMsg.getStatus());
-								logger.info("Server loadReplica: " + server.isLoadReplica() + " Server loadBalancer "
-										+ server.isLoadBalancer + " parentName: " + server.parentName + " name: "
-										+ server.name);
-								boolean lrFlag = server.isLoadReplica();
-								if (!lrFlag && server.isLoadBalancer) {
-									logger.info("Inside IF for PUT!");
-									int repSize = server.replicaConnections.size();
-									logger.info("RepSize : " + repSize);
-									replicaIndex= (replicaIndex+1) % repSize;
-									logger.info("Starting PUT request to replica index: " + replicaIndex);
+								if (server.isLoadBalancer) {
+									replicaIndex = (replicaIndex + 1) % repSize;
+									logger.info(String.format("Forwarding PUT request at replica %s of %s",
+											replicaIndex, server.replicaConnections.size()));
 									try {
 										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
 										store.connect();
-										//TODO: skip if current status is BUSY 
+										// TODO: skip if current status is BUSY
 										putRes = (KVMessage) store.put(latestMsg.getKey(), latestMsg.getValue());
-										logger.info("PutRes forwarding response status: " + putRes.getStatus());
-										logger.info("There are this many replica connectiosn:  "
-												+ server.replicaConnections.size());
-
+										logger.info("PUT forwarding response status: " + putRes.getStatus());
 									} catch (Exception e) {
-										logger.error("Put forwarding failed in client connections");
+										logger.error("PUT forwarding failed!");
 										exceptionLogger(e);
 									}
 								} else {
@@ -236,27 +236,20 @@ public class ClientConnection implements Runnable {
 							break;
 						case GET:
 							KVMessage getRes = validRequest(latestMsg.getKey(), false);
-							logger.info("CASE: GET " + latestMsg.getStatus());
-							logger.info("Server loadReplica: " + server.isLoadReplica() + " Server loadBalancer "
-									+ server.isLoadBalancer + " parentName: " + server.parentName + " name: "
-									+ server.name);
-							boolean lrFlag = server.isLoadReplica();
 							if (getRes == null) {
-								logger.info("CASE: GET - GetRes is null " + latestMsg.getStatus());
-								if (!lrFlag && server.isLoadBalancer) {
-									logger.info("Inside IF for GET!");
-									int repSize = server.replicaConnections.size();
-									logger.info("RepSize : " + repSize);
-									replicaIndex = (replicaIndex+1) % repSize;
-									logger.info("Starting PUT request to replica index " + replicaIndex);
+								if (server.isLoadBalancer) {
+									replicaIndex = (replicaIndex + 1) % repSize;
+									logger.info(String.format("Forwarding PUT request at replica %s of %s",
+											replicaIndex, server.replicaConnections.size()));
 									try {
 										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
 										store.connect();
-										//TODO: SKIP IF BUSY 
+										// TODO: SKIP IF BUSY
 										getRes = (KVMessage) store.get(latestMsg.getKey());
-										logger.info("getRes forwarding response status: " + getRes.getStatus());
+										logger.info("GET forwarding response status: " + getRes.getStatus());
 									} catch (Exception e) {
-										logger.error("Get forwarding failed in client connections");
+										logger.error("GET forwarding failed!");
+										exceptionLogger(e);
 									}
 								} else {
 									getRes = getKV(latestMsg.getKey());
@@ -309,6 +302,9 @@ public class ClientConnection implements Runnable {
 			logger.error("<"
 					+ clientSocket.getInetAddress().getHostAddress() + ":"
 					+ clientSocket.getPort() + "> Error! Connection could not be established!", ioe);
+		} catch (Exception e) {
+			logger.error("Error while running in client connection");
+			exceptionLogger(e);
 		} finally {
 			try {
 				if (clientSocket != null) {
@@ -470,7 +466,7 @@ public class ClientConnection implements Runnable {
 		return msg;
 	}
 
-	private static void exceptionLogger(Exception e) {
+	private void exceptionLogger(Exception e) {
 		StringWriter sw = new StringWriter();
 		PrintWriter pw = new PrintWriter(sw);
 		e.printStackTrace(pw);

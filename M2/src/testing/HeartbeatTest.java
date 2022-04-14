@@ -16,14 +16,14 @@ import shared.messages.IKVMessage.StatusType;
 public class HeartbeatTest extends TestCase {
 
 	private final String STORAGE_DIRECTORY = "storage/";
-	
+
 	private KVStore kvClient;
 	private static Logger logger = Logger.getRootLogger();
 	public static KVServer server;
 	public static int port;
 
 	public void setUp() {
-		kvClient = new KVStore("localhost", 50000);
+		kvClient = new KVStore("localhost", 50000, logger);
 		try {
 			server.clearStorage();
 			kvClient.connect();
@@ -44,7 +44,7 @@ public class HeartbeatTest extends TestCase {
 
 		IKVMessage response = null;
 		Exception ex = null;
-		
+
 		try {
 			response = kvClient.put(KEY, VALUE);
 		} catch (Exception e) {
@@ -60,7 +60,8 @@ public class HeartbeatTest extends TestCase {
 
 	public void testRetry() {
 		assertTrue(true);
-		if (true) return;
+		if (true)
+			return;
 
 		logger.info("====TEST PUT UPDATE====");
 		final String KEY = "updateTestValue";
@@ -82,7 +83,7 @@ public class HeartbeatTest extends TestCase {
 		} catch (Exception e) {
 			ex = e;
 		}
-		
+
 		assertNull(ex);
 		assertTrue(new File(STORAGE_DIRECTORY + KEY).isFile());
 		assertTrue(response.getStatus() == StatusType.PUT_UPDATE);
