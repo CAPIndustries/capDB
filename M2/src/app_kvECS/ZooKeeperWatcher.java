@@ -81,6 +81,8 @@ public class ZooKeeperWatcher implements Watcher {
                                     case MOVE:
                                     case SHUTDOWN:
                                     case CRASH:
+                                    case SAFE:
+                                    case HELP:
                                         break;
                                     default:
                                         caller.logger.error("Unrecognized node event:" + data[0]);

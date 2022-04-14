@@ -25,6 +25,7 @@ public class ReplicaConnection {
     private OutputStream output;
     private InputStream input;
     public int output_port;
+    public String name;
     private static final int BUFFER_SIZE = 1024;
     private static final int DROP_SIZE = 1024 * BUFFER_SIZE;
     private static final char LINE_FEED = 0x0A;
@@ -32,9 +33,10 @@ public class ReplicaConnection {
     private static final int RESPONSE_TIME = 90 * 1000;
     private static Logger logger = Logger.getRootLogger();
 
-    public ReplicaConnection(String replicaAddress, int replicaPort) {
+    public ReplicaConnection(String replicaAddress, int replicaPort, String name) {
         this.address = replicaAddress;
         this.port = replicaPort;
+        this.name = name;
     }
 
     public void connect() throws UnknownHostException, IOException {
@@ -112,8 +114,6 @@ public class ReplicaConnection {
         byte read = (byte) input.read();
         boolean reading = true;
 
-        // logger.debug("First read:" + read);
-
         if (read == -1) {
             throw new Exception("Reached end of stream!");
         }
@@ -136,11 +136,8 @@ public class ReplicaConnection {
                 index = 0;
             }
 
-            /* only read valid characters, i.e. letters and numbers */
-            // if((read > 31 && read < 127)) {
             bufferBytes[index] = read;
             index++;
-            // }
 
             /* stop reading if DROP_SIZE is reached */
             if (msgBytes != null && msgBytes.length + index >= DROP_SIZE) {
@@ -150,8 +147,6 @@ public class ReplicaConnection {
             /* read next char from stream */
             read = (byte) input.read();
         }
-
-        // logger.debug("Last read:" + read);
 
         if (msgBytes == null) {
             tmp = new byte[index];
@@ -167,11 +162,6 @@ public class ReplicaConnection {
         /* build final result */
         KVMessage msg = new KVMessage(msgBytes);
 
-        // if (!heartbeat) {
-        // logger.info("RECEIVE: STATUS="
-        // + msg.getStatus() + " KEY=" + msg.getKey() + " VALUE=" + msg.getValue());
-        // }
-
         return msg;
     }
 
@@ -180,6 +170,21 @@ public class ReplicaConnection {
         PrintWriter pw = new PrintWriter(sw);
         e.printStackTrace(pw);
         logger.error(sw.toString());
+    }
+
+    public void shutDown() {
+        try {
+            if (clientSocket != null) {
+                logger.info("Trying to disconnect ...");
+                input.close();
+                output.close();
+                clientSocket.close();
+                clientSocket = null;
+                logger.info("Connection closed!");
+            }
+        } catch (IOException ioe) {
+            logger.error("Unable to close connection!", ioe);
+        }
     }
 
 }

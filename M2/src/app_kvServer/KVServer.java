@@ -25,6 +25,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Arrays;
+import java.util.List;
 import java.util.TreeMap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -76,10 +77,11 @@ public class KVServer implements IKVServer {
 	private static final int HEALTHCHECK_INTERVAL = 5 * 1000;
 	// private static final int RECONCILIATION_INTERVAL = 30 * 1000;
 	private static final int RECONCILIATION_INTERVAL = 5 * 1000;
+	private static final int INITIAL_SCALEUP = 2;
 
 	public volatile boolean test = false;
 	public volatile boolean wait = false;
-
+	ScheduledExecutorService healthScheduler;
 	private Logger logger;
 	private int port;
 	private int cacheSize;
@@ -106,7 +108,6 @@ public class KVServer implements IKVServer {
 			add("server1;127.0.0.1;50020");
 		}
 	};
-	private ArrayList<String> loadReplications = new ArrayList<String>();
 	public boolean isLoadBalancer = false;
 
 	// For testing purpose we test autoscale once we have 2 connections
@@ -131,6 +132,7 @@ public class KVServer implements IKVServer {
 
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode;
+	public static String _availableServersZnode;
 
 	// TODO: I think the cache does indeed need to have concurrent access
 	private LinkedHashMap<String, String> cache;
@@ -184,6 +186,7 @@ public class KVServer implements IKVServer {
 			this.storageDirectory = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, name);
 		}
 		this._rootZnode = rootNode;
+		this._availableServersZnode = String.format("%s/%s", rootNode, "available");
 
 		if (strategy == CacheStrategy.LRU) {
 			cache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true) {
@@ -649,6 +652,8 @@ public class KVServer implements IKVServer {
 				System.out.println("Error! Invalid number of arguments!");
 				System.out.println(
 						"Usage: Server <name> <port> <ZooKeeper Port> <ZooKeeper Root Node> <parentName>!");
+				createErrorFile(
+						"Error! Invalid number of arguments! Usage: Server <name> <port> <ZooKeeper Port> <ZooKeeper Root Node> <parentName>!");
 				System.exit(1);
 			} else {
 				String name = args[0];
@@ -663,7 +668,19 @@ public class KVServer implements IKVServer {
 		} catch (NumberFormatException nfe) {
 			System.out.println("Error! Invalid argument <port>! Not a number!");
 			System.out.println("Usage: Server <port>!");
+			createErrorFile("Error! Invalid argument <port>! Not a number!\nUsage: Server <port>!");
 			System.exit(1);
+		}
+	}
+
+	private static void createErrorFile(String data) {
+		try {
+			String path = String.format("%s/%s", ROOT_STORAGE_DIRECTORY, "errors");
+			File file = new File(path + "/error.txt");
+			FileWriter myWriter = new FileWriter(file);
+			myWriter.write(data);
+			myWriter.close();
+		} catch (Exception e) {
 		}
 	}
 
@@ -1136,11 +1153,10 @@ public class KVServer implements IKVServer {
 	public void loadMetadata(String data) {
 		if (rawMetadata == null || rawMetadata.isEmpty()) {
 			initKVServer(data);
-			if (!isLoadReplica()) {
-				updateReplicas();
-				scheduleReconciliation();
-				scheduleSelfHealthCheck();
-			}
+			// TODO: SUHAYB CHECK THIS
+			updateReplicas();
+			scheduleReconciliation();
+			scheduleSelfHealthCheck();
 		} else {
 			update(data);
 		}
@@ -1251,14 +1267,38 @@ public class KVServer implements IKVServer {
 		logger.error(sw.toString());
 	}
 
+	private void setLoadBalancer(boolean balancer) {
+		isLoadBalancer = balancer;
+		if (balancer) {
+			autoScaleUp(INITIAL_SCALEUP);
+			// Watch for children events
+			String path = String.format("%s/%s", _rootZnode, name);
+			try {
+				_zooKeeper.exists(path,
+						true);
+			} catch (Exception e) {
+				logger.error("Error while attempting to subscribe to:" + path);
+				exceptionLogger(e);
+			}
+			// TODO: cancel healthcheck
+			healthScheduler.shutdownNow();
+			healthScheduler = null;
+		} else {
+			// TODO: Stop watching for zookeeper children events
+			// Reschedule the healthcheck
+			scheduleSelfHealthCheck();
+		}
+	}
+
 	// TODO: READ SUHAYB
+	// TODO: CANCEL SCHEDULED HEALTH CHECK AFTER LOAD BALANCER
 	private void scheduleSelfHealthCheck() {
 		logger.info(
 				"Starting the scheduled autoscale service (running every " + HEALTHCHECK_INTERVAL / 1000
 						+ " seconds) ...");
-		ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
+		healthScheduler = Executors.newScheduledThreadPool(1);
 
-		scheduler.scheduleAtFixedRate(new Runnable() {
+		healthScheduler.scheduleAtFixedRate(new Runnable() {
 			@Override
 			public void run() {
 				try {
@@ -1277,8 +1317,19 @@ public class KVServer implements IKVServer {
 					// autoScaleDown();
 					// }
 
-					if (clientCount > 1) {
-						autoScaleUp(2);
+					// CASE 1: Normal Storage Server -> Load balancer
+					if (!isLoadReplica() && !isLoadBalancer) {
+						if (clientCount > 1) {
+							setLoadBalancer(true);
+						}
+					} else {
+						// TODO: zooooker event for help!
+						String data = NodeEvent.HELP.name();
+						String path = String.format("%s/%s/%s", _rootZnode, parentName, name);
+						byte[] dataBytes = data.getBytes();
+						_zooKeeper.setData(path, dataBytes,
+								_zooKeeper.exists(path, false).getVersion());
+						logger.info("This server is busy: " + name);
 					}
 					logger.info("Server " + name + " is healthy!");
 				} catch (Exception e) {
@@ -1289,11 +1340,31 @@ public class KVServer implements IKVServer {
 		}, 0, HEALTHCHECK_INTERVAL, TimeUnit.MILLISECONDS);
 	}
 
-	// TODO: READ SUHAYB
-	private ArrayList<String> getAvailServers() {
-		// write code here to get available servers from zookeeper
-		// for now using dummy code
-		return availableServers;
+	private ArrayList<String> getAvailServers(int count) {
+		ArrayList<String> ret = new ArrayList<String>();
+		try {
+			List<String> avail = _zooKeeper.getChildren(_availableServersZnode, false);
+
+			if (avail.size() < count) {
+				return null;
+			}
+			ArrayList<Op> opList = new ArrayList<Op>();
+			for (int i = 0; i < count; ++i) {
+				String val = avail.get(i);
+				String path = String.format("%s/%s", _availableServersZnode, val);
+				opList.add(Op.delete(_availableServersZnode, _zooKeeper.exists(_availableServersZnode,
+						false).getVersion()));
+				ret.add(val);
+			}
+
+			_zooKeeper.multi(opList);
+			logger.info("Required available servers deleted from list!");
+		} catch (Exception e) {
+			logger.error("Error while getting all available servers");
+			exceptionLogger(e);
+			return null;
+		}
+		return ret;
 	}
 
 	// TODO: READ SUHAYB
@@ -1311,60 +1382,59 @@ public class KVServer implements IKVServer {
 	// TODO: READ SUHAYB
 	private void autoScaleUp(int maxCount) {
 		// First get list of avail servers
-		ArrayList<String> avail = getAvailServers();
+		ArrayList<String> avail = getAvailServers(maxCount);
 
-		// grab up to max count of servers and remove from list - using max count
-		// because we dont always need to add 2, besides the first time adding replica
-		ArrayList<String> replica = new ArrayList<String>();
-		int cnt = 0;
-		for (int i = 0; i < avail.size(); ++i) {
-			replica.add(avail.get(i));
-			cnt++;
-			if (cnt == maxCount)
-				break;
+		// doesnt work
+		if (avail == null) {
+			return;
 		}
 
 		// remove from avail servers in zookeeper and save replica list
-		loadReplications.addAll(replica);
-		removeFromAvailServers(replica);
+		// TODO: check replicaConnections instead - may have everything needed
+		// loadReplications.addAll(avail);
 
 		// Start each server and make sure they point to same storage and everything.
 		// Copied code from how ECS spins up new servers
-		boolean status = startreplicaConnections(replica);
-
+		boolean status = startReplicaConnections(avail);
 		// Set loadBalance flag to true
-		isLoadBalancer = true;
+		// TODO cancel health check
 
 	}
 
-	// TODO: READ SUHAYB
-	private void autoScaleDown() {
-		// if done with sub directories no need to make sure data is consistent
-		// as it is always going to be in sink
-		int repCount = loadReplications.size();
+	private void addToAvailServers(String server) {
+		try {
+			byte[] data = "".getBytes();
+			String path = String.format("%s/%s", _availableServersZnode, server);
+			_zooKeeper.create(path, data, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+		} catch (Exception e) {
+			logger.error("Error while adding available server:" + server);
+			exceptionLogger(e);
+		}
+	}
 
-		// do this for zookeeper obviously
-		if (repCount > 2) {
-			// remove one server -> or calculate how many to remove from system load
-			// lowest threshold or if overall system usage gets lower.. .etc
-			loadReplications.remove(loadReplications.size() - 1);
-			removeFromAvailServers(loadReplications);
-		} else {
-			// remove all
-			removeFromAvailServers(loadReplications);
-			isLoadBalancer = false;
+	private void autoScaleDown() {
+		ReplicaConnection to_rem = replicaConnections.remove(replicaConnections.size() - 1);
+		to_rem.shutDown();
+		try {
+			String path = String.format("%s/%s/%s", _rootZnode, parentName, to_rem.name);
+			logger.info("Deleting path to child node: " + path);
+			_zooKeeper.delete(path, _zooKeeper.exists(path,
+					false).getVersion());
+		} catch (Exception e) {
+			logger.error("Errror while auto scaling down: " + to_rem.name);
+			exceptionLogger(e);
 		}
 	}
 
 	// TODO: READ SUHAYB
-	private boolean startreplicaConnections(ArrayList<String> replica) {
+	private boolean startReplicaConnections(ArrayList<String> replicas) {
 		int err = 0;
 		// from replica list - start server (copied from ECSNODE)
-		for (String Item : replica) {
+		for (String Item : replicas) {
 			logger.info("Intializing server ... \nRunning script ...");
 			String script = "script.sh";
 
-			String[] serverInfo = Item.split(";");
+			String[] serverInfo = Item.split("_");
 			String childName = serverInfo[0];
 			String host = serverInfo[1];
 			String port = serverInfo[2];
@@ -1400,16 +1470,38 @@ public class KVServer implements IKVServer {
 				logger.info("Added:" + serverInfo[0] + "(" + serverInfo[1] + ":" + serverInfo[2] + ")");
 				Thread.currentThread().sleep(500);
 				// KVStore connection = new KVStore(host, Integer.parseInt(port));
-				ReplicaConnection rc = new ReplicaConnection(host, Integer.parseInt(port));
+				ReplicaConnection rc = new ReplicaConnection(host, Integer.parseInt(port), childName);
 				replicaConnections.add(rc);
 				// connection.connect();
 
 			} catch (Exception e) {
 				e.printStackTrace();
 				err += 1;
+				logger.error("Happened while sshing into newly spun up replica: " + childName);
+
+				exceptionLogger(e);
 			}
 		}
 		return err > 0 ? false : true;
 	}
 
+	public void handleSafeNode(String path) {
+		logger.info("Handling a SAFE node event: " + path);
+	}
+
+	public void handleHelpNode(String path) {
+		logger.info("Handling a HELP node event: " + path);
+	}
+
+	public void nodesChanged() {
+		try {
+			List<String> available_servers = _zooKeeper.getChildren(_availableServersZnode, false);
+			logger.info("Nodes now:");
+			logger.info(Arrays.toString(available_servers.toArray()));
+			// Subscribe to any new child
+		} catch (Exception e) {
+			logger.error("Error while doing nodes changed");
+			exceptionLogger(e);
+		}
+	}
 }

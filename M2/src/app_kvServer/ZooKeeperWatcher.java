@@ -99,6 +99,12 @@ public class ZooKeeperWatcher implements Watcher {
                                 caller.reconcileData(true);
                                 caller.shutDown();
                                 break;
+                            case SAFE:
+                                caller.handleSafeNode(path);
+                                break;
+                            case HELP:
+                                caller.handleHelpNode(path);
+                                break;
                             // Ignored events:
                             case BOOT:
                             case COPY_COMPLETE:
@@ -116,6 +122,10 @@ public class ZooKeeperWatcher implements Watcher {
                     e.printStackTrace(pw);
                     logger.error(sw.toString());
                 }
+                break;
+            case NodeChildrenChanged:
+                // Is it a new child? Or did a node get deleted?
+                caller.nodesChanged();
                 break;
         }
     }

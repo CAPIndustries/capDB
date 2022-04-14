@@ -212,11 +212,12 @@ public class ClientConnection implements Runnable {
 									logger.info("Inside IF for PUT!");
 									int repSize = server.replicaConnections.size();
 									logger.info("RepSize : " + repSize);
-									int i = replicaIndex % repSize;
-									logger.info("Starting PUT request to replica index: " + i);
+									replicaIndex= (replicaIndex+1) % repSize;
+									logger.info("Starting PUT request to replica index: " + replicaIndex);
 									try {
-										ReplicaConnection store = server.replicaConnections.get(i);
+										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
 										store.connect();
+										//TODO: skip if current status is BUSY 
 										putRes = (KVMessage) store.put(latestMsg.getKey(), latestMsg.getValue());
 										logger.info("PutRes forwarding response status: " + putRes.getStatus());
 										logger.info("There are this many replica connectiosn:  "
@@ -226,7 +227,6 @@ public class ClientConnection implements Runnable {
 										logger.error("Put forwarding failed in client connections");
 										exceptionLogger(e);
 									}
-									replicaIndex += 1;
 								} else {
 									putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
 								}
@@ -247,17 +247,17 @@ public class ClientConnection implements Runnable {
 									logger.info("Inside IF for GET!");
 									int repSize = server.replicaConnections.size();
 									logger.info("RepSize : " + repSize);
-									int i = replicaIndex % repSize;
-									logger.info("Starting PUT request to replica index " + i);
+									replicaIndex = (replicaIndex+1) % repSize;
+									logger.info("Starting PUT request to replica index " + replicaIndex);
 									try {
-										ReplicaConnection store = server.replicaConnections.get(i);
+										ReplicaConnection store = server.replicaConnections.get(replicaIndex);
 										store.connect();
+										//TODO: SKIP IF BUSY 
 										getRes = (KVMessage) store.get(latestMsg.getKey());
 										logger.info("getRes forwarding response status: " + getRes.getStatus());
 									} catch (Exception e) {
 										logger.error("Get forwarding failed in client connections");
 									}
-									replicaIndex += 1;
 								} else {
 									getRes = getKV(latestMsg.getKey());
 								}
