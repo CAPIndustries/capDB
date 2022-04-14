@@ -21,6 +21,7 @@ import org.apache.log4j.Logger;
 import app_kvServer.IKVServer.Status;
 
 import ecs.ECSNode;
+import client.KVStore;
 
 import shared.messages.KVMessage;
 import shared.messages.IKVMessage;
@@ -184,7 +185,7 @@ public class ClientConnection implements Runnable {
 	 */
 	public void run() {
 		Long sum = (long) 0;
-
+		int replicaIndex = 0; 
 		try {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
@@ -195,11 +196,24 @@ public class ClientConnection implements Runnable {
 					KVMessage latestMsg = receiveMessage();
 					if (latestMsg == null)
 						return;
+					
 					switch (latestMsg.getStatus()) {
 						case PUT:
 							KVMessage putRes = validRequest(latestMsg.getKey(), true);
 							if (putRes == null) {
-								putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
+								if(server.isLoadBalancer){
+									int i = replicaIndex % server.replicaConnections.size();
+									try {
+										KVStore store = server.replicaConnections.get(i);
+										putRes = (KVMessage)store.put(latestMsg.getKey(), latestMsg.getValue());
+								
+									}catch(Exception e){
+											logger.error("Put forwarding failed in client connections");
+									}
+									replicaIndex += 1;
+								} else {
+									putRes = putKV(latestMsg.getKey(), latestMsg.getValue());
+								}
 							}
 							sendMessage(putRes);
 							sum += System.nanoTime() - start;
@@ -207,7 +221,19 @@ public class ClientConnection implements Runnable {
 						case GET:
 							KVMessage getRes = validRequest(latestMsg.getKey(), false);
 							if (getRes == null) {
-								getRes = getKV(latestMsg.getKey());
+								if(server.isLoadBalancer){
+									int i = replicaIndex % server.replicaConnections.size();
+									try {
+										KVStore store = server.replicaConnections.get(i);
+										getRes = (KVMessage)store.get(latestMsg.getKey());
+									} catch(Exception e){
+										logger.error("Get forwarding failed in client connections");
+									}
+									replicaIndex += 1;
+								}
+								else {
+									getRes = getKV(latestMsg.getKey());
+								}
 							}
 							sendMessage(getRes);
 							sum += System.nanoTime() - start;
