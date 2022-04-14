@@ -81,7 +81,7 @@ public class ClientConnection implements Runnable {
 				res = new KVMessage(key,
 						"Server is not is currently blocked for write requests due to reallocation of data!",
 						StatusType.SERVER_WRITE_LOCK);
-			} else {
+			} else if (!server.isLoadReplica()) {
 				String responsible_server = getResponsibleServer(key);
 				if (!responsible_server.equals(server.getServerName())) {
 					if (PUT_OP) {
@@ -95,7 +95,7 @@ public class ClientConnection implements Runnable {
 			}
 		} catch (Exception e) {
 			logger.error("Error while composing message");
-			logger.error(e.getMessage());
+			exceptionLogger(e);
 		}
 
 		return res;
@@ -185,30 +185,46 @@ public class ClientConnection implements Runnable {
 	 */
 	public void run() {
 		Long sum = (long) 0;
-		int replicaIndex = 0; 
+		int replicaIndex = 0;
 		try {
 			output = clientSocket.getOutputStream();
 			input = clientSocket.getInputStream();
-			sendMetadata();
+			if (!server.isLoadReplica())
+				sendMetadata();
 			while (isOpen) {
 				try {
 					Long start = System.nanoTime();
 					KVMessage latestMsg = receiveMessage();
 					if (latestMsg == null)
 						return;
-					
+					logger.info("Handling Server Requests: " + latestMsg.getStatus());
 					switch (latestMsg.getStatus()) {
 						case PUT:
 							KVMessage putRes = validRequest(latestMsg.getKey(), true);
+							logger.info("CASE: PUT " + latestMsg.getStatus());
 							if (putRes == null) {
-								if(server.isLoadBalancer){
-									int i = replicaIndex % server.replicaConnections.size();
+								logger.info("CASE: PUT - PutRes is null" + latestMsg.getStatus());
+								logger.info("Server loadReplica: " + server.isLoadReplica() + " Server loadBalancer "
+										+ server.isLoadBalancer + " parentName: " + server.parentName + " name: "
+										+ server.name);
+								boolean lrFlag = server.isLoadReplica();
+								if (!lrFlag && server.isLoadBalancer) {
+									logger.info("Inside IF for PUT!");
+									int repSize = server.replicaConnections.size();
+									logger.info("RepSize : " + repSize);
+									int i = replicaIndex % repSize;
+									logger.info("Starting PUT request to replica index: " + i);
 									try {
-										KVStore store = server.replicaConnections.get(i);
-										putRes = (KVMessage)store.put(latestMsg.getKey(), latestMsg.getValue());
-								
-									}catch(Exception e){
-											logger.error("Put forwarding failed in client connections");
+										ReplicaConnection store = server.replicaConnections.get(i);
+										store.connect();
+										putRes = (KVMessage) store.put(latestMsg.getKey(), latestMsg.getValue());
+										logger.info("PutRes forwarding response status: " + putRes.getStatus());
+										logger.info("There are this many replica connectiosn:  "
+												+ server.replicaConnections.size());
+
+									} catch (Exception e) {
+										logger.error("Put forwarding failed in client connections");
+										exceptionLogger(e);
 									}
 									replicaIndex += 1;
 								} else {
@@ -220,18 +236,29 @@ public class ClientConnection implements Runnable {
 							break;
 						case GET:
 							KVMessage getRes = validRequest(latestMsg.getKey(), false);
+							logger.info("CASE: GET " + latestMsg.getStatus());
+							logger.info("Server loadReplica: " + server.isLoadReplica() + " Server loadBalancer "
+									+ server.isLoadBalancer + " parentName: " + server.parentName + " name: "
+									+ server.name);
+							boolean lrFlag = server.isLoadReplica();
 							if (getRes == null) {
-								if(server.isLoadBalancer){
-									int i = replicaIndex % server.replicaConnections.size();
+								logger.info("CASE: GET - GetRes is null " + latestMsg.getStatus());
+								if (!lrFlag && server.isLoadBalancer) {
+									logger.info("Inside IF for GET!");
+									int repSize = server.replicaConnections.size();
+									logger.info("RepSize : " + repSize);
+									int i = replicaIndex % repSize;
+									logger.info("Starting PUT request to replica index " + i);
 									try {
-										KVStore store = server.replicaConnections.get(i);
-										getRes = (KVMessage)store.get(latestMsg.getKey());
-									} catch(Exception e){
+										ReplicaConnection store = server.replicaConnections.get(i);
+										store.connect();
+										getRes = (KVMessage) store.get(latestMsg.getKey());
+										logger.info("getRes forwarding response status: " + getRes.getStatus());
+									} catch (Exception e) {
 										logger.error("Get forwarding failed in client connections");
 									}
 									replicaIndex += 1;
-								}
-								else {
+								} else {
 									getRes = getKV(latestMsg.getKey());
 								}
 							}

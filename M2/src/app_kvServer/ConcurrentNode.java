@@ -89,7 +89,8 @@ public class ConcurrentNode {
 			StringBuilder subRes = new StringBuilder();
 			for (int i = 0; i < node.length; ++i) {
 				subRes.append(node[i]);
-				if (i != node.length-1) subRes.append(".");
+				if (i != node.length - 1)
+					subRes.append(".");
 			}
 			res.append(subRes.toString() + " ");
 		}

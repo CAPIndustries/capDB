@@ -54,6 +54,8 @@ import shared.messages.IKVMessage.StatusType;
 import app_kvServer.ConcurrentNode;
 import app_kvServer.ZooKeeperWatcher;
 
+import app_kvServer.ReplicaConnection;
+
 import ecs.IECSNode.NodeEvent;
 import ecs.ECSNode;
 
@@ -95,34 +97,36 @@ public class KVServer implements IKVServer {
 	OperatingSystemMXBean osBean = ManagementFactory.getPlatformMXBean(OperatingSystemMXBean.class);
 	private String replica1 = null;
 	private String replica2 = null;
-	
-	
+
 	// remove after we can get avail servers from zookeeper
 	private ArrayList<String> availableServers = new ArrayList<String>() {
-            {
-                add("server0;127.0.0.1;50019");
-                add("server1;127.0.0.1;50020");
-            }
-    };
+		{
+			add("server0;127.0.0.1;50019");
+			add("server1;127.0.0.1;50020");
+		}
+	};
 	private ArrayList<String> loadReplications = new ArrayList<String>();
 	public boolean isLoadBalancer = false;
 
 	// For testing purpose we test autoscale once we have 2 connections
 	private int clientCount = 0;
 
-	// List of kv stores - using since they are easier to work for now to connect to load replicas
-	public ArrayList<KVStore> replicaConnections = null;
+	// List of kv stores - using since they are easier to work for now to connect to
+	// load replicas
+	public ArrayList<ReplicaConnection> replicaConnections = new ArrayList<ReplicaConnection>();
 
-	// load replica servers should not do any load balance - this flag disables health check stuff
+	// load replica servers should not do any load balance - this flag disables
+	// health check stuff
 	public boolean isLoadReplica() {
 		logger.info("Server parentName: " + parentName + " name: " + name);
-		if (parentName.equals(name)){
+		if (parentName.equals(name)) {
 			return false;
 		} else {
 			return true;
 		}
 	}
-	private String parentName = "";
+
+	public String parentName = "";
 
 	public ZooKeeper _zooKeeper = null;
 	public String _rootZnode = "/servers";
@@ -165,7 +169,7 @@ public class KVServer implements IKVServer {
 		this.zkPort = zkPort;
 		this.ECSIP = ECSIP;
 		this.parentName = parentName;
-		if (isLoadReplica()){
+		if (isLoadReplica()) {
 			this.storageDirectory = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, parentName);
 		} else {
 			this.storageDirectory = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, name);
@@ -187,12 +191,11 @@ public class KVServer implements IKVServer {
 		if (!initializeZooKeeper()) {
 			logger.error("Could not not initialize ZooKeeper!");
 			_zooKeeper = null;
-		} else if(isLoadReplica()){
+		} else if (isLoadReplica()) {
 			// TODO REMOVE once zookeeper is setup
 			logger.info("Attempting to run load replica server ...");
 			run();
-		}
-		else {
+		} else {
 			logger.info("Spinning until server boots ...");
 			// Keep spinning until signalled to start
 			while (getStatus() == Status.BOOT)
@@ -642,7 +645,7 @@ public class KVServer implements IKVServer {
 				int zkPort = Integer.parseInt(args[2]);
 				String ECSIP = args[3];
 				String parentName = args[4];
-				
+
 				SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
 				new LogSetup("logs/" + name + "_" + fmt.format(new Date()) + ".log", Level.ALL, true);
 				// No need to use the run method here since the contructor is supposed to
@@ -669,7 +672,8 @@ public class KVServer implements IKVServer {
 
 	private boolean initializeServer() {
 		logger.info("Initializing server ...");
-		if(!isLoadReplica()) initializeStorage();
+		if (!isLoadReplica())
+			initializeStorage();
 
 		try {
 			serverSocket = new ServerSocket(port);
@@ -699,7 +703,7 @@ public class KVServer implements IKVServer {
 			byte[] data = NodeEvent.BOOT.name().getBytes();
 
 			String path = "";
-			if(this.isLoadReplica()) {
+			if (this.isLoadReplica()) {
 				logger.info("This is a load replica!");
 				path = String.format("%s/%s/%s", _rootZnode, parentName, name);
 			} else {
@@ -707,11 +711,15 @@ public class KVServer implements IKVServer {
 				path = String.format("%s/%s", _rootZnode, name);
 			}
 			logger.info("Creating node:" + path);
-			// We cannnot add children under ephemeral nodes! - need to create same type of node as root node
+			// We cannnot add children under ephemeral nodes! - need to create same type of
+			// node as root node
 			_zooKeeper.create(path, data, ZooDefs.Ids.OPEN_ACL_UNSAFE,
-					CreateMode.EPHEMERAL);
-			_zooKeeper.getData(path,
-					zkWatcher, null);
+					CreateMode.PERSISTENT);
+
+			if (!isLoadReplica()) {
+				_zooKeeper.getData(path,
+						zkWatcher, null);
+			}
 			return true;
 		} catch (Exception e) {
 			logger.error("Error encountered while creating ZooKeeper node!");
@@ -1127,7 +1135,7 @@ public class KVServer implements IKVServer {
 	public void loadMetadata(String data) {
 		if (rawMetadata == null || rawMetadata.isEmpty()) {
 			initKVServer(data);
-			if(!isLoadReplica()) {
+			if (!isLoadReplica()) {
 				updateReplicas();
 				scheduleReconciliation();
 				scheduleSelfHealthCheck();
@@ -1242,34 +1250,36 @@ public class KVServer implements IKVServer {
 		logger.error(sw.toString());
 	}
 
+	// TODO: READ SUHAYB
 	private void scheduleSelfHealthCheck() {
 		logger.info(
 				"Starting the scheduled autoscale service (running every " + HEALTHCHECK_INTERVAL / 1000
 						+ " seconds) ...");
 		ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
-		
+
 		scheduler.scheduleAtFixedRate(new Runnable() {
 			@Override
 			public void run() {
 				try {
 					// What % CPU load this current JVM is taking, from 0.0-1.0
-					// once theres multiple servers we need to collect data from all the servers - HOW?  
-					// may need to use client connectsions 
-					// amount of requests -> periodcially calculating throughput 
+					// once theres multiple servers we need to collect data from all the servers -
+					// HOW?
+					// may need to use client connectsions
+					// amount of requests -> periodcially calculating throughput
 					// currently just using % CPU load this current JVM is taking, from 0.0-1.0
-					double load = osBean.getProcessCpuLoad();	
+					double load = osBean.getProcessCpuLoad();
 					logger.info("Server cpu load by process is: " + load);
 					// if(load > UPPER_THRESHOLD){
-					// 	int currentReps = loadReplications.size() 
-					// 	autoScaleUp(currentReps);xxxxxxxw
-					// } else if (load < LOWER_THRESHOLD ) { 
-					// 	autoScaleDown(); 
-					// }		
+					// int currentReps = loadReplications.size()
+					// autoScaleUp(currentReps);xxxxxxxw
+					// } else if (load < LOWER_THRESHOLD ) {
+					// autoScaleDown();
+					// }
 
-					if (clientCount > 1){ 
+					if (clientCount > 1) {
 						autoScaleUp(2);
-					} 
-					logger.info( "Server " + name + " is healthy!");
+					}
+					logger.info("Server " + name + " is healthy!");
 				} catch (Exception e) {
 					logger.error("Error while getting the relative load of the current server process!");
 					exceptionLogger(e);
@@ -1278,25 +1288,26 @@ public class KVServer implements IKVServer {
 		}, 0, HEALTHCHECK_INTERVAL, TimeUnit.MILLISECONDS);
 	}
 
-
-
-	private ArrayList<String> getAvailServers(){
+	// TODO: READ SUHAYB
+	private ArrayList<String> getAvailServers() {
 		// write code here to get available servers from zookeeper
 		// for now using dummy code
 		return availableServers;
 	}
 
-	private boolean removeFromAvailServers(ArrayList<String> replica){
+	// TODO: READ SUHAYB
+	private boolean removeFromAvailServers(ArrayList<String> replica) {
 		// write code here to remove servers from zookeeper
 		// for now removing from list
-		for(String server : availableServers){
-			if(replica.contains(server)){
+		for (String server : availableServers) {
+			if (replica.contains(server)) {
 				availableServers.remove(server);
 			}
 		}
 		return true;
 	}
 
+	// TODO: READ SUHAYB
 	private void autoScaleUp(int maxCount) {
 		// First get list of avail servers
 		ArrayList<String> avail = getAvailServers();
@@ -1305,10 +1316,11 @@ public class KVServer implements IKVServer {
 		// because we dont always need to add 2, besides the first time adding replica
 		ArrayList<String> replica = new ArrayList<String>();
 		int cnt = 0;
-		for(int i = 0; i < avail.size(); ++i){
+		for (int i = 0; i < avail.size(); ++i) {
 			replica.add(avail.get(i));
 			cnt++;
-			if(cnt == maxCount) break;
+			if (cnt == maxCount)
+				break;
 		}
 
 		// remove from avail servers in zookeeper and save replica list
@@ -1319,33 +1331,35 @@ public class KVServer implements IKVServer {
 		// Copied code from how ECS spins up new servers
 		boolean status = startreplicaConnections(replica);
 
-		//Set loadBalance flag to true
+		// Set loadBalance flag to true
 		isLoadBalancer = true;
 
 	}
 
-	private void autoScaleDown() { 
+	// TODO: READ SUHAYB
+	private void autoScaleDown() {
 		// if done with sub directories no need to make sure data is consistent
-		// as it is always going to be in sink 
+		// as it is always going to be in sink
 		int repCount = loadReplications.size();
 
-		// do this for zookeeper obviously 
-		if(repCount > 2){
+		// do this for zookeeper obviously
+		if (repCount > 2) {
 			// remove one server -> or calculate how many to remove from system load
-			// lowest threshold or if overall system usage gets lower.. .etc 
-			loadReplications.remove(loadReplications.size() -1);
+			// lowest threshold or if overall system usage gets lower.. .etc
+			loadReplications.remove(loadReplications.size() - 1);
 			removeFromAvailServers(loadReplications);
-		} else { 
-			// remove all 
+		} else {
+			// remove all
 			removeFromAvailServers(loadReplications);
 			isLoadBalancer = false;
 		}
 	}
 
+	// TODO: READ SUHAYB
 	private boolean startreplicaConnections(ArrayList<String> replica) {
 		int err = 0;
 		// from replica list - start server (copied from ECSNODE)
-		for(String Item: replica){
+		for (String Item : replica) {
 			logger.info("Intializing server ... \nRunning script ...");
 			String script = "script.sh";
 
@@ -1358,7 +1372,8 @@ public class KVServer implements IKVServer {
 			Runtime run = Runtime.getRuntime();
 			String[] envp = { "host=" + host, "name=" + childName, "port=" + port,
 					"zkPort=" + this.zkPort, "ECS_host=" +
-							this.ECSIP, "parentName=" + this.name
+							this.ECSIP,
+					"parentName=" + this.name
 			};
 			try {
 				final Process proc = run.exec(script, envp);
@@ -1383,10 +1398,11 @@ public class KVServer implements IKVServer {
 				// That way server is properly started and accepting connections
 				logger.info("Added:" + serverInfo[0] + "(" + serverInfo[1] + ":" + serverInfo[2] + ")");
 				Thread.currentThread().sleep(500);
-				KVStore connection = new KVStore(host, Integer.parseInt(port));
-				connection.connect();
-				replicaConnections.add(connection);
-				
+				// KVStore connection = new KVStore(host, Integer.parseInt(port));
+				ReplicaConnection rc = new ReplicaConnection(host, Integer.parseInt(port));
+				replicaConnections.add(rc);
+				// connection.connect();
+
 			} catch (Exception e) {
 				e.printStackTrace();
 				err += 1;
@@ -1396,4 +1412,3 @@ public class KVServer implements IKVServer {
 	}
 
 }
-
