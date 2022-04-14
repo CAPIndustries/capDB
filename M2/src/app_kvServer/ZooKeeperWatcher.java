@@ -50,14 +50,7 @@ public class ZooKeeperWatcher implements Watcher {
                 }
                 try {
                     // Since notifications are a one time thing, we must reset the watcher
-                    String watchPath; 
-
-                    if (caller.isLoadReplica()){
-                        watchPath = String.format("%s/%s/%s", caller._rootZnode, caller.parentName, caller.name);
-                    } else {
-                        watchPath = String.format("%s/%s", caller._rootZnode, caller.name);
-                    }
-
+                    String watchPath = String.format("%s/%s/%s", caller._rootZnode, caller.parentName, caller.name);
                     logger.info("Resetting watchers on " + watchPath + " ...");
                     caller._zooKeeper.getData(watchPath, this, null);
                 } catch (Exception e) {

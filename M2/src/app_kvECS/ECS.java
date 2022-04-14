@@ -36,6 +36,8 @@ import java.math.BigInteger;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.AddWatchMode;
+import org.apache.zookeeper.Op;
 
 import org.apache.log4j.Logger;
 import org.apache.log4j.Level;
@@ -58,7 +60,7 @@ public class ECS implements IECSClient {
     private static final CacheStrategy DEFAULT_CACHE_STRATEGY = CacheStrategy.LRU;
     private static final int DEFAULT_CACHE_SIZE = 16;
 
-    private static Logger logger = Logger.getRootLogger();
+    public static Logger logger;
     private static final String PROMPT = "ECS> ";
     private static boolean shutdown = false;
     private boolean running = false;
@@ -91,40 +93,35 @@ public class ECS implements IECSClient {
      * @param args contains the port number at args[0].
      */
     public static void main(String[] args) {
-        try {
-            SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-            new LogSetup("logs/ecs_" + fmt.format(new Date()) + ".log", Level.INFO, true);
-            if (args.length != 3) {
-                logger.error("Error! Invalid number of arguments!");
-                logger.error("Usage: ECS <ECS port> <ZooKeeper port> <config file>!");
-                System.exit(1);
-            } else {
-                int port = Integer.parseInt(args[0]);
-                int zkPort = Integer.parseInt(args[1]);
-                String config = args[2];
-                ECS app = new ECS(port, zkPort, config);
-                final Thread mainThread = Thread.currentThread();
-                Runtime.getRuntime().addShutdownHook(new Thread() {
-                    public void run() {
-                        try {
-                            terminate();
-                        } catch (Exception e) {
-                            logger.error("Error while completing the shutdown");
-                            exceptionLogger(e);
-                        }
-                    }
-                });
-                app.run();
-            }
-        } catch (IOException e) {
-            System.out.println("Error! Unable to initialize logger!");
-            exceptionLogger(e);
+        if (args.length != 3) {
+            System.out.println("Error! Invalid number of arguments!");
+            System.out.println("Usage: ECS <ECS port> <ZooKeeper port> <config file>!");
             System.exit(1);
+        } else {
+            int port = Integer.parseInt(args[0]);
+            int zkPort = Integer.parseInt(args[1]);
+            String config = args[2];
+            ECS app = new ECS(port, zkPort, config);
+            final Thread mainThread = Thread.currentThread();
+            Runtime.getRuntime().addShutdownHook(new Thread() {
+                public void run() {
+                    try {
+                        terminate();
+                    } catch (Exception e) {
+                        System.out.println("Error while completing the shutdown");
+                        exceptionLogger(e);
+                    }
+                }
+
+            });
+            app.run();
         }
     }
 
     public ECS(int port, int zkPort, String config) {
         try {
+            SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
+            logger = new LogSetup("logs", "ecs_" + fmt.format(new Date()), Level.ALL, true).getLogger();
             this.port = port;
             this.zkPort = zkPort;
             this.ECSIP = getIP();
@@ -140,6 +137,7 @@ public class ECS implements IECSClient {
                 String data = myReader.nextLine();
                 servers.add(data);
             }
+
             myReader.close();
 
             Collections.shuffle(servers);
@@ -152,10 +150,8 @@ public class ECS implements IECSClient {
     }
 
     public void testrun() {
-
         try {
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-            new LogSetup("logs/ecs_" + fmt.format(new Date()) + ".log", Level.INFO, true);
             initServer();
             logger.info("Initialized Server");
             initZooKeeper();
@@ -256,6 +252,8 @@ public class ECS implements IECSClient {
         // Create the root node
         byte[] data = "".getBytes();
         _zooKeeper.create(_rootZnode, data, ZooDefs.Ids.OPEN_ACL_UNSAFE, CreateMode.PERSISTENT);
+        _zooKeeper.exists(_rootZnode,
+                true);
         _zooKeeper.getChildren(_rootZnode,
                 true);
     }
@@ -271,7 +269,7 @@ public class ECS implements IECSClient {
                 if (node.getStatus() != Status.BOOT) {
                     continue;
                 }
-                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+                String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
 
                 // Check if any move events have to take place, and issue them:
                 String[] movedData = moveData(node.getNodeName(), false);
@@ -296,8 +294,7 @@ public class ECS implements IECSClient {
                 logger.info("Going to start " + path);
                 byte[] data = NodeEvent.START.name().getBytes();
 
-                // Must subscribe here since its the initial entry point of the node
-                _zooKeeper.setData(path, data, _zooKeeper.exists(path, true).getVersion());
+                _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
             }
 
             if (movedServers.size() == 0) {
@@ -371,12 +368,12 @@ public class ECS implements IECSClient {
 
     public static void terminate() {
         try {
-            logger.info("Terminating program ...");
+            System.out.println("Terminating program ...");
 
             shutdown = true;
             completeShutdown();
         } catch (Exception e) {
-            logger.error(e);
+            System.out.println(e);
             exceptionLogger(e);
         }
     }
@@ -402,7 +399,7 @@ public class ECS implements IECSClient {
             // of any other potential servers (cf. sendMetadata)
             String[] hashRange = { null, hash };
             ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
-                    Integer.parseInt(serverInfo[2]), zkPort, hashRange, ECSIP);
+                    Integer.parseInt(serverInfo[2]), zkPort, _rootZnode, hashRange);
 
             if (!node.initServer()) {
                 logger.error("Could not SSH into server!");
@@ -490,11 +487,11 @@ public class ECS implements IECSClient {
         }
     }
 
-    private static boolean broadcastData(byte[] data) {
+    private boolean broadcastData(byte[] data) {
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
-                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+                String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
                 if (_zooKeeper.exists(path, false) != null) {
                     _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
                 }
@@ -510,30 +507,41 @@ public class ECS implements IECSClient {
 
     private static void completeShutdown() {
         try {
-            ArrayList<String> deleted_nodes = new ArrayList<String>();
+            ArrayList<Op> opList = new ArrayList<Op>();
             for (Map.Entry<String, ECSNode> entry : active_servers.entrySet()) {
                 String key = entry.getKey();
                 ECSNode node = entry.getValue();
 
-                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
-                deleted_nodes.add(path);
                 node.setStatus(Status.SHUTDOWN);
                 active_servers.put(key, node);
+
+                String path = String.format("%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
+                if (_zooKeeper.exists(path,
+                        false) != null) {
+                    List<String> children = _zooKeeper.getChildren(path, false);
+                    // Delete every node in that level
+                    for (String child : children) {
+                        String subpath = String.format("%s/%s", path, child);
+                        logger.info("Deleting: " + String.format("%s/%s", path, child));
+                        opList.add(Op.delete(subpath, _zooKeeper.exists(subpath,
+                                false).getVersion()));
+                    }
+                    // Delete the level itself
+                    opList.add(Op.delete(path, _zooKeeper.exists(path,
+                            false).getVersion()));
+                }
             }
 
-            for (String node : deleted_nodes) {
-                _zooKeeper.delete(node, _zooKeeper.exists(node,
-                        false).getVersion());
-            }
-
-            if (deleted_nodes.size() == 0) {
+            if (opList.size() > 0) {
+                _zooKeeper.multi(opList);
+            } else {
                 logger.info("All servers shut down! Deleting root ZK node ...");
                 // Delete the ZooKeeper root node
-                _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
-                        false).getVersion());
-                logger.info("Root ZK node deleted. Shutdown complete");
-
-                System.exit(0);
+                if (_zooKeeper.exists(_rootZnode,
+                        false) != null) {
+                    _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
+                            false).getVersion());
+                }
             }
         } catch (Exception e) {
             logger.error("Error while completing the shutdown");
@@ -555,7 +563,7 @@ public class ECS implements IECSClient {
     // Remove a specific server
     public boolean removeNode(String serverName) {
         logger.info("Removing " + serverName);
-        String path = String.format("%s/%s", _rootZnode, serverName);
+        String path = String.format("%s/%s/%s", _rootZnode, serverName, serverName);
         Map.Entry<String, ECSNode> entry = getEntry(serverName);
         if (entry != null) {
             String key = entry.getKey();
@@ -582,14 +590,12 @@ public class ECS implements IECSClient {
     public void setRunning(boolean running) {
         this.running = running;
     }
-    
+
     public boolean isRunning() {
         return running;
     }
 
-    public synchronized boolean nodeRemovedCreated() {
-        ArrayList<Map.Entry<String, ECSNode>> nodesCrashed = new ArrayList<Map.Entry<String, ECSNode>>();
-        boolean update_metadata = false;
+    public synchronized boolean nodeCreated() {
         Iterator<Map.Entry<String, ECSNode>> active_iter = active_servers.entrySet().iterator();
 
         while (active_iter.hasNext()) {
@@ -597,68 +603,81 @@ public class ECS implements IECSClient {
 
             String key = entry.getKey();
             ECSNode node = entry.getValue();
-            String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+            String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
             try {
-                // Node was (possibly) deleted/crashed
-                if (_zooKeeper.exists(path, false) == null) {
-                    if (node.getStatus() == Status.ADDED) {
-                        continue;
-                    }
-                    boolean crash = false;
-                    if (node.getStatus() == Status.SHUTDOWN) {
-                        logger.info("Node gracefully closed: " + node.getNodeName());
-                    } else {
-                        logger.info("Node crashed: " + node.getNodeName());
-                        crash = true;
-                    }
-                    active_iter.remove();
-
-                    if (shutdown) {
-                        List<String> nodes = _zooKeeper.getChildren(_rootZnode, false);
-                        if (nodes.size() == 0) {
-                            logger.info("All servers shut down! Deleting root ZK node ...");
-                            // Delete the ZooKeeper root node
-                            _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
-                                    false).getVersion());
-                            logger.info("Root ZK node deleted. Shutdown complete");
-
-                            System.exit(0);
-                        }
-                    } else {
-                        // Add it back to the list of available servers
-                        String nodeConfig = String.format("%s %s %s", node.getNodeName(), node.getNodeHost(),
-                                node.getNodePort());
-                        logger.info("Re adding back: " + nodeConfig);
-                        available_servers.add(nodeConfig);
-                        if (crash) {
-                            nodesCrashed.add(entry);
-                        } else {
-                            update_metadata = true;
-                        }
-                    }
-                }
                 // Node was (possibly) added
-                else if (node.getStatus() == Status.ADDED) {
-                    logger.info("Node addition of " + node.getNodeName());
+                // Must subscribe here since its the initial entry point of the node
+                if (node.getStatus() == Status.ADDED && _zooKeeper.exists(path, false) != null) {
                     node.setStatus(Status.BOOT);
                     active_servers.put(key, node);
+                    logger.info("Node addition of " + node.getNodeName());
+                    logger.info("Watching on:" + path);
+                    _zooKeeper.exists(path, true);
                 }
             } catch (Exception e) {
-                logger.error("Error while checking for removed nodes");
+                logger.error("Error while checking for added nodes");
                 exceptionLogger(e);
 
                 return false;
             }
         }
 
-        for (Map.Entry<String, ECSNode> entry : nodesCrashed) {
-            nodeCrashed(entry);
-        }
+        return true;
+    }
 
-        if (update_metadata) {
-            // Broadcast the updated metadata
-            updateMetadata();
-            sendMetadata();
+    public synchronized boolean nodeDeleted(String path) {
+        try {
+            if (path.equals(_rootZnode) || _zooKeeper.exists(_rootZnode,
+                    false) == null) {
+                logger.info("Root ZK node deleted. Shutdown complete");
+
+                System.exit(0);
+            }
+            Map.Entry<String, ECSNode> entry = getEntry(path.substring(path.lastIndexOf('/') + 1));
+            boolean crash = false;
+            boolean update_metadata = false;
+            if (entry.getValue().getStatus() == Status.SHUTDOWN) {
+                logger.info("Node gracefully closed: " + entry.getValue().getNodeName());
+            } else {
+                logger.info("Node crashed: " + entry.getValue().getNodeName());
+                crash = true;
+            }
+
+            active_servers.remove(entry.getKey());
+
+            if (shutdown) {
+
+                List<String> nodes = _zooKeeper.getChildren(_rootZnode, false);
+                if (nodes.size() == 0) {
+                    logger.info("All servers shut down! Deleting root ZK node ...");
+                    // Delete the ZooKeeper root node
+                    if (_zooKeeper.exists(_rootZnode,
+                            false) != null) {
+                        _zooKeeper.delete(_rootZnode, _zooKeeper.exists(_rootZnode,
+                                false).getVersion());
+                    }
+                }
+
+            } else {
+                // Add it back to the list of available servers
+                String nodeConfig = String.format("%s %s %s", entry.getValue().getNodeName(),
+                        entry.getValue().getNodeHost(),
+                        entry.getValue().getNodePort());
+                logger.info("Re adding back: " + nodeConfig);
+                available_servers.add(nodeConfig);
+                if (crash) {
+                    nodeCrashed(entry);
+                } else {
+                    // Broadcast the updated metadata
+                    updateMetadata();
+                    sendMetadata();
+                }
+            }
+        } catch (Exception e) {
+            logger.error("Error while checking for removed nodes");
+            exceptionLogger(e);
+
+            return false;
         }
 
         return true;
@@ -670,14 +689,22 @@ public class ECS implements IECSClient {
         logger.info("Sending:" + crashedEvent);
 
         try {
-            Map.Entry<String, ECSNode> new_coord = active_servers.higherEntry(entry.getKey());
-            // If it wraps around:
-            if (new_coord == null) {
-                new_coord = active_servers.firstEntry();
-            }
-            String path = String.format("%s/%s", _rootZnode, new_coord.getValue().getNodeName());
-            _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
-            crashedServers.put(path, entry.getValue().getNodeName());
+            // TODO: Uncomment the following to re-add back a new server upon a server crash
+            // Map.Entry<String, ECSNode> new_coord =
+            // active_servers.higherEntry(entry.getKey());
+            // // If it wraps around:
+            // if (new_coord == null) {
+            // new_coord = active_servers.firstEntry();
+            // }
+            // String path = String.format("%s/%s/%s", _rootZnode,
+            // new_coord.getValue().getNodeName(),
+            // new_coord.getValue().getNodeName());
+            // _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
+            // crashedServers.put(path, entry.getValue().getNodeName());
+            // Delete the root node now: (This will cause problems if there were replicas!)
+            // TODO: FIX!
+            String path = String.format("%s/%s", _rootZnode, entry.getValue().getNodeName());
+            _zooKeeper.delete(path, _zooKeeper.exists(path, false).getVersion());
         } catch (Exception e) {
             logger.error("Error while sending CRASH to " + entry.getValue().getNodeName());
             exceptionLogger(e);
@@ -742,10 +769,11 @@ public class ECS implements IECSClient {
             }
 
             if (delete) {
-                String znode = String.format("%s/%s", _rootZnode, serverName);
+                String znode = String.format("%s/%s/%s", _rootZnode, serverName, serverName);
                 return new String[] { znode, lower, successor.getKey(), successorVal.getNodeName() };
             } else {
-                String znode = String.format("%s/%s", _rootZnode, successorVal.getNodeName());
+                String znode = String.format("%s/%s/%s", _rootZnode, successorVal.getNodeName(),
+                        successorVal.getNodeName());
                 return new String[] { znode, lower, key, serverName };
             }
         }
@@ -800,7 +828,7 @@ public class ECS implements IECSClient {
         // Broadcast to all servers
         try {
             for (IECSNode node : active_servers.values()) {
-                String path = String.format("%s/%s", _rootZnode, node.getNodeName());
+                String path = String.format("%s/%s/%s", _rootZnode, node.getNodeName(), node.getNodeName());
                 logger.info("\tTo " + path);
                 _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
             }
@@ -844,7 +872,7 @@ public class ECS implements IECSClient {
 
     private void startServer(String serverName) {
         try {
-            String path = String.format("%s/%s", _rootZnode, serverName);
+            String path = String.format("%s/%s/%s", _rootZnode, serverName, serverName);
             byte[] data = NodeEvent.START.name().getBytes();
             _zooKeeper.setData(path, data, _zooKeeper.exists(path, false).getVersion());
         } catch (Exception e) {

@@ -24,6 +24,7 @@ import java.util.Scanner;
 import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
+import java.util.Arrays;
 import java.util.TreeMap;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -45,6 +46,7 @@ import org.apache.log4j.Logger;
 import org.apache.zookeeper.ZooKeeper;
 import org.apache.zookeeper.ZooDefs;
 import org.apache.zookeeper.CreateMode;
+import org.apache.zookeeper.Op;
 
 import logger.LogSetup;
 
@@ -78,13 +80,12 @@ public class KVServer implements IKVServer {
 	public volatile boolean test = false;
 	public volatile boolean wait = false;
 
-	private static Logger logger = Logger.getRootLogger();
+	private Logger logger;
 	private int port;
 	private int cacheSize;
 	public String name;
 	private String nameHash;
 	private int zkPort;
-	private String ECSIP;
 	private CacheStrategy strategy;
 	private ServerSocket serverSocket;
 	private Status status = Status.BOOT;
@@ -129,7 +130,7 @@ public class KVServer implements IKVServer {
 	public String parentName = "";
 
 	public ZooKeeper _zooKeeper = null;
-	public String _rootZnode = "/servers";
+	public String _rootZnode;
 
 	// TODO: I think the cache does indeed need to have concurrent access
 	private LinkedHashMap<String, String> cache;
@@ -158,7 +159,16 @@ public class KVServer implements IKVServer {
 	 * 
 	 */
 	public KVServer(final int cacheSize, CacheStrategy strategy, String name, int port,
-			int zkPort, String ECSIP, String parentName) {
+			int zkPort, String rootNode, String parentName) {
+		try {
+			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
+			logger = new LogSetup("logs", name + "_" + fmt.format(new Date()), Level.ALL, true).getLogger();
+		} catch (Exception e) {
+			System.out.println("Error! Unable to initialize logger!");
+			e.printStackTrace();
+			System.exit(1);
+		}
+
 		logger.info("Creating server. Config: port=" + port + " Cache Size=" + cacheSize
 				+ " Caching strategy=" + strategy);
 
@@ -167,13 +177,13 @@ public class KVServer implements IKVServer {
 		this.strategy = strategy;
 		this.name = name;
 		this.zkPort = zkPort;
-		this.ECSIP = ECSIP;
 		this.parentName = parentName;
 		if (isLoadReplica()) {
 			this.storageDirectory = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, parentName);
 		} else {
 			this.storageDirectory = String.format("%s/%s/", ROOT_STORAGE_DIRECTORY, name);
 		}
+		this._rootZnode = rootNode;
 
 		if (strategy == CacheStrategy.LRU) {
 			cache = new LinkedHashMap<String, String>(cacheSize, 0.75f, true) {
@@ -636,27 +646,20 @@ public class KVServer implements IKVServer {
 	public static void main(String[] args) {
 		try {
 			if (args.length != 5) {
-				logger.error("Error! Invalid number of arguments!");
-				logger.error("Usage: Server <name> <port> <ZooKeeper Port> <ECS IP> <parentName>!");
+				System.out.println("Error! Invalid number of arguments!");
+				System.out.println(
+						"Usage: Server <name> <port> <ZooKeeper Port> <ZooKeeper Root Node> <parentName>!");
 				System.exit(1);
 			} else {
 				String name = args[0];
 				int port = Integer.parseInt(args[1]);
 				int zkPort = Integer.parseInt(args[2]);
-				String ECSIP = args[3];
+				String rootZnode = args[3];
 				String parentName = args[4];
 
-				SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-				new LogSetup("logs/" + name + "_" + fmt.format(new Date()) + ".log", Level.ALL, true);
-				// No need to use the run method here since the contructor is supposed to
-				// start the server on its own
-				// TODO: Allow passing additional arguments from the command line:
-				new KVServer(START_CACHE_SIZE, START_CACHE_STRATEGY, name, port, zkPort, ECSIP, parentName);
+				new KVServer(START_CACHE_SIZE, START_CACHE_STRATEGY, name, port, zkPort, rootZnode,
+						parentName);
 			}
-		} catch (IOException e) {
-			System.out.println("Error! Unable to initialize logger!");
-			e.printStackTrace();
-			System.exit(1);
 		} catch (NumberFormatException nfe) {
 			System.out.println("Error! Invalid argument <port>! Not a number!");
 			System.out.println("Usage: Server <port>!");
@@ -699,27 +702,25 @@ public class KVServer implements IKVServer {
 		logger.info("Creating & initializing ZooKeeper node ...");
 		try {
 			ZooKeeperWatcher zkWatcher = new ZooKeeperWatcher(this);
-			_zooKeeper = new ZooKeeper(ECSIP + ":" + zkPort, 2000, zkWatcher);
+			_zooKeeper = new ZooKeeper("localhost:" + zkPort, 2000, zkWatcher);
 			byte[] data = NodeEvent.BOOT.name().getBytes();
 
-			String path = "";
-			if (this.isLoadReplica()) {
-				logger.info("This is a load replica!");
-				path = String.format("%s/%s/%s", _rootZnode, parentName, name);
-			} else {
-				logger.info("This server is not a load replica!");
-				path = String.format("%s/%s", _rootZnode, name);
+			String path = String.format("%s/%s", _rootZnode, parentName);
+			ArrayList<Op> opList = new ArrayList<Op>();
+			if (!this.isLoadReplica()) {
+				logger.info("This is the first node");
+				opList.add(Op.create(path, data,
+						ZooDefs.Ids.OPEN_ACL_UNSAFE,
+						CreateMode.PERSISTENT));
 			}
-			logger.info("Creating node:" + path);
-			// We cannnot add children under ephemeral nodes! - need to create same type of
-			// node as root node
-			_zooKeeper.create(path, data, ZooDefs.Ids.OPEN_ACL_UNSAFE,
-					CreateMode.PERSISTENT);
+			path = String.format("%s/%s", path, name);
+			opList.add(Op.create(path, data,
+					ZooDefs.Ids.OPEN_ACL_UNSAFE,
+					CreateMode.EPHEMERAL));
+			_zooKeeper.multi(opList);
 
-			if (!isLoadReplica()) {
-				_zooKeeper.getData(path,
-						zkWatcher, null);
-			}
+			_zooKeeper.getData(path,
+					zkWatcher, null);
 			return true;
 		} catch (Exception e) {
 			logger.error("Error encountered while creating ZooKeeper node!");
@@ -767,7 +768,7 @@ public class KVServer implements IKVServer {
 			try {
 				String[] hashRange = { serverInfo[3], serverInfo[4] };
 				ECSNode node = new ECSNode(serverInfo[0], serverInfo[1],
-						Integer.parseInt(serverInfo[2]), zkPort, hashRange, "RANDOM");
+						Integer.parseInt(serverInfo[2]), hashRange);
 				logger.info("Server info:" + node.getMeta());
 
 				// Remember this server's hash so we don't have to keep recalculating it
@@ -931,7 +932,7 @@ public class KVServer implements IKVServer {
 		try {
 			logger.info("Sending:" + data);
 			byte[] dataBytes = data.getBytes();
-			String path = String.format("%s/%s", _rootZnode, name);
+			String path = String.format("%s/%s/%s", _rootZnode, parentName, name);
 			_zooKeeper.setData(path, dataBytes, _zooKeeper.exists(path, false).getVersion());
 		} catch (Exception e) {
 			logger.error("Error setting node data!");
@@ -1243,7 +1244,7 @@ public class KVServer implements IKVServer {
 		}
 	}
 
-	private static void exceptionLogger(Exception e) {
+	private void exceptionLogger(Exception e) {
 		StringWriter sw = new StringWriter();
 		PrintWriter pw = new PrintWriter(sw);
 		e.printStackTrace(pw);
@@ -1371,8 +1372,8 @@ public class KVServer implements IKVServer {
 			// Parent name is needed to make sure replica uses same file dir
 			Runtime run = Runtime.getRuntime();
 			String[] envp = { "host=" + host, "name=" + childName, "port=" + port,
-					"zkPort=" + this.zkPort, "ECS_host=" +
-							this.ECSIP,
+					"zkPort=" + this.zkPort, "zkRoot=" +
+							this._rootZnode,
 					"parentName=" + this.name
 			};
 			try {
