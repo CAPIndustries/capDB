@@ -39,4 +39,9 @@ public interface IECSNode {
 
     public Status getStatus();
 
+    public Process getSSHProcess();
+
+    // Return a string representing this node's data
+    public String getMeta();
+
 }

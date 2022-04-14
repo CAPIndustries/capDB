@@ -17,11 +17,7 @@ import ecs.IECSNode.NodeEvent;
 
 import app_kvECS.ECS;
 
-import logger.LogSetup;
-
 public class ZooKeeperWatcher implements Watcher {
-
-    private static Logger logger = Logger.getRootLogger();
 
     private ECS caller = null;
 
@@ -46,24 +42,24 @@ public class ZooKeeperWatcher implements Watcher {
                 // Affected path
                 String path = event.getPath();
 
-                logger.info("Event from:\t" + path);
-                logger.info("Connection status:\t" + keeperState.toString());
-                logger.info("Event type:\t" + eventType.toString());
+                caller.logger.info("Event from:\t" + path);
+                caller.logger.info("Connection status:\t" + keeperState.toString());
+                caller.logger.info("Event type:\t" + eventType.toString());
 
                 switch (eventType) {
                     case None:
-                        logger.info("Successfully connected to ZK server!");
+                        caller.logger.info("Successfully connected to ZK server!");
                         break;
                     case NodeDataChanged:
                         try {
-                            logger.info("Node data update");
+                            caller.logger.info("Node data update");
                             // Resubscribe below:
-                            logger.info("Resubscribing back to " + path);
+                            caller.logger.info("Resubscribing back to " + path);
                             byte[] dataBytes = caller._zooKeeper.getData(path,
                                     true, null);
                             String recv = new String(dataBytes,
                                     "UTF-8");
-                            logger.info("ZooKeeper Notification:" + recv);
+                            caller.logger.info("ZooKeeper Notification:" + recv);
                             String[] reqs = recv.split("~~");
 
                             // There may be piggybacked requests
@@ -87,28 +83,30 @@ public class ZooKeeperWatcher implements Watcher {
                                     case CRASH:
                                         break;
                                     default:
-                                        logger.error("Unrecognized node event:" + data[0]);
+                                        caller.logger.error("Unrecognized node event:" + data[0]);
                                 }
                             }
                         } catch (Exception e) {
-                            logger.error("Error while getting data");
+                            caller.logger.error("Error while getting data");
                             exceptionLogger(e);
                         }
                         break;
                     case NodeChildrenChanged:
                         // Is it a new child? Or did a node get deleted?
-                        logger.info("Node created/deleted");
-                        caller.nodeRemovedCreated();
+                        caller.nodeCreated();
 
                         // Resubscribe back:
                         try {
-                            logger.info("Resubscribing back to children");
+                            caller.logger.info("Resubscribing back to children");
                             caller._zooKeeper.getChildren(caller._rootZnode,
                                     true);
                         } catch (Exception e) {
-                            logger.error("Error while resubscribing back to obtain children");
+                            caller.logger.error("Error while resubscribing back to obtain children");
                             exceptionLogger(e);
                         }
+                        break;
+                    case NodeDeleted:
+                        caller.nodeDeleted(path);
                         break;
                     default:
                         break;
@@ -122,6 +120,6 @@ public class ZooKeeperWatcher implements Watcher {
         StringWriter sw = new StringWriter();
         PrintWriter pw = new PrintWriter(sw);
         e.printStackTrace(pw);
-        logger.error(sw.toString());
+        caller.logger.error(sw.toString());
     }
 }

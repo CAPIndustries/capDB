@@ -31,14 +31,13 @@ public class AllTests {
 	private static KVServer kvserver;
 	private static ECSClient client;
 	private static int PORT = 50000;
-	private static int ECSPORT = 8000; 
-	private static int zkPort = 2181; 
-	private static int serverPort = 50019; 
+	private static int ECSPORT = 8000;
+	private static int zkPort = 2181;
+	private static int serverPort = 50019;
 	private static Logger logger;
-	private static ECS ECSServer; 
+	private static ECS ECSServer;
 
 	private static String configPath = "";
-
 
 	// TODO - in teardown remove root node in zookeeper
 	static {
@@ -46,18 +45,17 @@ public class AllTests {
 			File file = new File("logs/testing/test.log");
 			file.delete();
 
-			new LogSetup("logs/testing/test.log", Level.INFO);
-			logger = Logger.getRootLogger();
+			logger = new LogSetup("logs/testing", "test", Level.INFO, true).getLogger();
 			logger.debug("testing boot//.");
 
-			ECSServer = new ECS(ECSPORT, zkPort, configPath); 
+			ECSServer = new ECS(ECSPORT, zkPort, configPath);
 			logger.info("hidkaha");
 			Runnable server = new Runnable() {
 				@Override
 				public void run() {
 					logger.debug("Hello");
 					ECSServer.testrun();
-					ECSServer.addNode("any",20);
+					ECSServer.addNode("any", 20);
 					logger.debug("Hello");
 					ECSServer.start();
 					logger.debug("OH noo");
@@ -74,13 +72,13 @@ public class AllTests {
 						logger.debug(e.getMessage());
 						ECSServer.shutdown();
 					}
-						logger.error("herer:" + kvserver.getStatus());
-						ECSServer.shutdown();
+					logger.error("herer:" + kvserver.getStatus());
+					ECSServer.shutdown();
 					// kvserver.run();
 				}
 			};
 			// new Thread(server).start();
-		
+
 		} catch (IOException e) {
 			e.printStackTrace();
 		}
@@ -95,7 +93,7 @@ public class AllTests {
 		// logger.debug("Hello");
 		ECSServer.testrun();
 		// ECSServer.addNode("ant", 20);
-		ECSServer.addNodes(10,"any",20);
+		ECSServer.addNodes(10, "any", 20);
 		// // ECSServer.start();
 
 		try {
@@ -109,32 +107,32 @@ public class AllTests {
 		// // need KVStore to call the right server
 		// KVStore kvClient = new KVStore("localhost", serverPort);
 		// try {
-		// 	logger.debug("KV client connect in progress...");
-		// 	kvClient.connect();
-	
-		// 	// logger.info("sleeping");
-		// 	// Thread.currentThread().sleep(5000);
+		// logger.debug("KV client connect in progress...");
+		// kvClient.connect();
 
-		// 	kvClient.put("haha", "10");
-		// 	IKVMessage val = kvClient.get("haha");
-		// 	logger.debug(val.getValue());
+		// // logger.info("sleeping");
+		// // Thread.currentThread().sleep(5000);
+
+		// kvClient.put("haha", "10");
+		// IKVMessage val = kvClient.get("haha");
+		// logger.debug(val.getValue());
 		// } catch (Exception e) {
-		// 	logger.error(e);
-		// 	logger.debug("TES: CONNECt bricked");
-		// 	logger.debug(e.getMessage());
-			
+		// logger.error(e);
+		// logger.debug("TES: CONNECt bricked");
+		// logger.debug(e.getMessage());
+
 		// }
 		// ECSServer.shutdown();
 
 		// try{
-		// 	logger.info("sleeping");
-		// 	do {
-		// 	Thread.currentThread().sleep(1000);
-		// 	} while (true)
+		// logger.info("sleeping");
+		// do {
+		// Thread.currentThread().sleep(1000);
+		// } while (true)
 		// } catch(Exception e) {
-		// 	logger.error(e);
+		// logger.error(e);
 		// }
-		
+
 		// logger.error("herer:" + kvserver.getStatus());
 		// ConnectionTest.port = 50019;
 		// ConnectionTest.server = ECSServer;
@@ -164,11 +162,11 @@ public class AllTests {
 
 		// boolean valu = client.shutdown();
 		// try {
-		// 	Thread.currentThread().sleep(15000);
+		// Thread.currentThread().sleep(15000);
 		// } catch (Exception e) {
-		// 	logger.debug(e.getMessage());
+		// logger.debug(e.getMessage());
 		// }
-	 	
+
 		// ECSServer.shutdown();
 		return clientSuite;
 	}

@@ -25,7 +25,7 @@ public class KVClient implements IKVClient {
 
 	private static final String PROMPT = "KVClient> ";
 
-	private static Logger logger = Logger.getRootLogger();
+	private Logger logger;
 	private BufferedReader stdin;
 	private KVStore store = null;
 	private boolean running = true;
@@ -54,19 +54,20 @@ public class KVClient implements IKVClient {
 	 * @param args contains the port number at args[0].
 	 */
 	public static void main(String[] args) {
+		KVClient app = new KVClient();
+		app.run();
+	}
+
+	public void run() {
 		try {
 			SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-			new LogSetup("logs/client_" + fmt.format(new Date()) + ".log", Level.ALL, false);
-			KVClient app = new KVClient();
-			app.run();
+			logger = new LogSetup("logs", "client_" + fmt.format(new Date()), Level.ALL, false).getLogger();
 		} catch (IOException e) {
 			System.out.println("Error! Unable to initialize logger!");
 			e.printStackTrace();
 			System.exit(1);
 		}
-	}
 
-	public void run() {
 		while (running) {
 			stdin = new BufferedReader(new InputStreamReader(System.in));
 			System.out.print(PROMPT);

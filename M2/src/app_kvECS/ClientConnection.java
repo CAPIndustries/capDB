@@ -260,7 +260,7 @@ public class ClientConnection implements Runnable {
 				+ clientSocket.getInetAddress().getHostAddress() + ":"
 				+ clientSocket.getPort() + "> (SHUTDOWN_ECS)");
 
-		server.terminate();
+		server.shutdown();
 	}
 
 	/**

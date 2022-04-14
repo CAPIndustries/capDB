@@ -34,7 +34,7 @@ public class ECSClient {
     private static final char LINE_FEED = 0x0A;
     private static final char RETURN = 0x0D;
 
-    private static Logger logger = Logger.getRootLogger();
+    private Logger logger;
     private static final String PROMPT = "ECSClient> ";
     private static final CacheStrategy DEFAULT_CACHE_STRATEGY = CacheStrategy.LRU;
     private static final int DEFAULT_CACHE_SIZE = 16;
@@ -55,24 +55,25 @@ public class ECSClient {
      * @param args contains the port number at args[0].
      */
     public static void main(String[] args) {
+        if (args.length != 0) {
+            System.out.println("Error! Expected 0 arguments");
+            System.out.println("Usage: ECSClient!");
+            System.exit(1);
+        }
+        ECSClient app = new ECSClient();
+        app.run();
+    }
+
+    private void run() {
         try {
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-            new LogSetup("logs/ecsclient_" + fmt.format(new Date()) + ".log", Level.ALL, true);
-            if (args.length != 0) {
-                logger.error("Error! Expected 0 arguments");
-                logger.error("Usage: ECSClient!");
-                System.exit(1);
-            }
-            ECSClient app = new ECSClient();
-            app.run();
+            logger = new LogSetup("logs", "ecsclient_" + fmt.format(new Date()), Level.ALL, true).getLogger();
         } catch (IOException e) {
             System.out.println("Error! Unable to initialize logger!");
             e.printStackTrace();
             System.exit(1);
         }
-    }
 
-    private void run() {
         while (isRunning()) {
             stdin = new BufferedReader(new InputStreamReader(System.in));
             System.out.print(PROMPT);

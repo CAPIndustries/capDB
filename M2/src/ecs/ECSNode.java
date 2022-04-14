@@ -1,6 +1,7 @@
 package ecs;
 
 import java.util.Date;
+import java.util.Arrays;
 
 import java.text.SimpleDateFormat;
 
@@ -13,20 +14,22 @@ import app_kvServer.IKVServer.Status;
 
 public class ECSNode implements IECSNode {
 
-    private static Logger logger = Logger.getRootLogger();
+    private Logger logger;
 
     private String name;
     private String host;
     private int port;
     private int zkPort = -1;
-    private String ECSIP;
+    private String zkRoot = null;
     private String[] hashRange;
     private Status status = Status.ADDED;
+    private Process proc;
 
-    public ECSNode(String name, String host, int port, int zkPort, String[] hashRange, String ECSIP) {
+    public ECSNode(String name, String host, int port, int zkPort, String zkRoot, String[] hashRange) {
         try {
             SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd-HH-mm-ss");
-            new LogSetup("logs/ecsnode_" + name + "_" + fmt.format(new Date()) + ".log", Level.ALL, false);
+            logger = new LogSetup("logs", "ecsnode_" + name + "_" + fmt.format(new Date()), Level.ALL, false)
+                    .getLogger();
         } catch (Exception e) {
             System.out.println("Error! Unable to initialize logger!");
             e.printStackTrace();
@@ -36,15 +39,14 @@ public class ECSNode implements IECSNode {
         this.host = host;
         this.port = port;
         this.zkPort = zkPort;
-        this.ECSIP = ECSIP;
+        this.zkRoot = zkRoot;
         this.hashRange = hashRange.clone();
     }
 
-    public ECSNode(String name, String host, int port, String[] hashRange, String ECSIP) {
+    public ECSNode(String name, String host, int port, String[] hashRange) {
         this.name = name;
         this.host = host;
         this.port = port;
-        this.ECSIP = ECSIP;
         this.hashRange = hashRange.clone();
     }
 
@@ -58,11 +60,11 @@ public class ECSNode implements IECSNode {
 
         Runtime run = Runtime.getRuntime();
         String[] envp = { "host=" + this.host, "name=" + this.name, "port=" + this.port,
-                "zkPort=" + this.zkPort, "ECS_host=" +
-                        this.ECSIP, "parentName=" + this.name
+                "zkPort=" + this.zkPort, "parentName=" + this.name, "zkRoot=" + this.zkRoot
         };
+
         try {
-            final Process proc = run.exec(script, envp);
+            proc = run.exec(script, envp);
             new Thread(new Runnable() {
                 @Override
                 public void run() {
@@ -71,7 +73,7 @@ public class ECSNode implements IECSNode {
                         proc.waitFor();
                         int exitStatus = proc.exitValue();
                         if (exitStatus != 0) {
-                            logger.error("Error in calling new server:" + exitStatus);
+                            logger.error("Error in calling new server: " + exitStatus);
                         }
                     } catch (Exception e) {
                         logger.error("Exception in calling new server!");
@@ -85,6 +87,10 @@ public class ECSNode implements IECSNode {
             e.printStackTrace();
             return false;
         }
+    }
+
+    public Process getSSHProcess() {
+        return proc;
     }
 
     // Return a string representing this node's data
